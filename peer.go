@@ -8,6 +8,7 @@ import (
 
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/examples/internal/signal"
+	"github.com/pion/webrtc/v3/examples/media-server/mqttclient"
 )
 
 type peer struct {
@@ -24,6 +25,8 @@ func CreatePeer(id string, role int) *peer {
 		peerid:         id,
 		role:           role,
 		peerConnection: nil,
+		videoTrack:     nil,
+		rtpsender:      nil,
 	}
 }
 
@@ -161,7 +164,7 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 	if err != nil {
 		panic(err)
 	}
-	ResponseMessage(ws)
+	mqttclient.GetInstance().ReplyMessage(string(answer))
 }
 
 // HandleRemoteAnswer is
