@@ -164,7 +164,11 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 	if err != nil {
 		panic(err)
 	}
-	mqttclient.GetInstance().ReplyMessage(string(answer))
+	jsonBytes, err := json.Marshal(answer)
+	if err != nil {
+		panic(err)
+	}
+	mqttclient.GetInstance().ReplyMessage(string(jsonBytes))
 }
 
 // HandleRemoteAnswer is
