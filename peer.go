@@ -42,6 +42,20 @@ func (p *peer) Init() bool {
 	if err != nil {
 		return false
 	}
+	if p.role == 2 {
+		offer, err := p.peerConnection.CreateOffer(nil)
+		if err != nil {
+			return false
+		}
+		p.peerConnection.SetLocalDescription(offer)
+
+		jsonBytes, err := json.Marshal(offer)
+		if err != nil {
+			panic(err)
+		}
+
+		mqttclient.GetInstance().ReplyMessage(string(jsonBytes))
+	}
 	return true
 }
 
