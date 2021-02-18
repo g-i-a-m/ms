@@ -3,8 +3,6 @@
 package main
 
 import (
-	"sync"
-
 	"github.com/pion/webrtc/v3/examples/media-server/mqttclient"
 )
 
@@ -17,7 +15,6 @@ func main() {
 		go mqtt.Publish(topic, msg)
 	})
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	wg.Wait()
+	// Block forever
+	select {}
 }
