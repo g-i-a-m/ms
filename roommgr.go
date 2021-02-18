@@ -7,7 +7,8 @@ import "fmt"
 type jsonparser map[string]interface{}
 
 type roommgr struct {
-	rooms map[string]room
+	rooms                map[string]room
+	onSendMessageHandler func(topic, msg string)
 }
 
 // CreateRoomMgr is create a room manager object
@@ -17,7 +18,11 @@ func CreateRoomMgr() *roommgr {
 	}
 }
 
-func (rm *roommgr) HandleMessage(msg string) {
+func (rm *roommgr) SetSendMessageHandler(f func(topic, msg string)) {
+	rm.onSendMessageHandler = f
+}
+
+func (rm *roommgr) HandleMessage(msg []byte) {
 	m, err := CreateJSONParser(msg)
 	if err != nil {
 		fmt.Println("json.Unmarshal failed:", err)
@@ -32,11 +37,8 @@ func (rm *roommgr) HandleMessage(msg string) {
 		room := CreateRoom(roomid)
 		rm.rooms[roomid] = *room
 		room.HandleMessage(m)
-	} else if command == "logout" {
-		if _, ok := rm.rooms[roomid]; ok {
-			delete(rm.rooms, roomid)
-		}
-	} else if command == "push" ||
+	} else if command == "logout" ||
+		command == "push" ||
 		command == "stoppush" ||
 		command == "sub" ||
 		command == "stopsub" ||

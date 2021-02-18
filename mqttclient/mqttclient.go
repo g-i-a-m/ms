@@ -4,93 +4,79 @@ package mqttclient
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"sync"
+	"time"
 
-	"golang.org/x/net/websocket"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 type mqttonnection struct {
-	ws                       *websocket.Conn
+	client                   mqtt.Client
 	mutex                    sync.RWMutex
-	onReceivedMessageHandler func(string)
-	onConnectStatusHandler   func(string)
+	onReceivedMessageHandler func([]byte)
 }
 
-var instance *mqttonnection
-var once sync.Once
+var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
+	fmt.Println("mqtt Connected")
+}
 
-func GetInstance() *mqttonnection {
-	once.Do(func() {
-		instance = &mqttonnection{
-			ws:                       nil,
-			onReceivedMessageHandler: nil,
-			onConnectStatusHandler:   nil,
-		}
+var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
+	fmt.Printf("Connect lost: %v", err)
+}
+
+func CreateMqtt() *mqttonnection {
+	return &mqttonnection{}
+}
+
+func (conn *mqttonnection) Init() {
+	mqtt.ERROR = log.New(os.Stdout, "[ERROR] ", 0)
+	mqtt.CRITICAL = log.New(os.Stdout, "[CRIT] ", 0)
+	mqtt.WARN = log.New(os.Stdout, "[WARN]  ", 0)
+	//mqtt.DEBUG = log.New(os.Stdout, "[DEBUG] ", 0)
+
+	var ip = "127.0.0.1"
+	var port = 1883
+	opts := mqtt.NewClientOptions()
+	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", ip, port))
+	opts.SetClientID("media_server")
+	opts.SetUsername("admin")
+	opts.SetPassword("public")
+
+	opts.SetConnectRetryInterval(2 * time.Second)
+	opts.SetAutoReconnect(true)
+	opts.SetMaxReconnectInterval(5 * time.Second)
+	opts.SetKeepAlive(30 * time.Second)
+	opts.SetPingTimeout(1 * time.Second)
+	opts.SetCleanSession(true)
+
+	opts.SetDefaultPublishHandler(func(client mqtt.Client, msg mqtt.Message) {
+		fmt.Printf("Received message from: %s %s\n", msg.Topic(), msg.Payload())
+		go conn.onReceivedMessageHandler(msg.Payload())
 	})
-	return instance
-}
+	opts.SetOnConnectHandler(connectHandler)
+	opts.SetConnectionLostHandler(connectLostHandler)
 
-// CreateMqtt is create a room manager object
-// func CreateMqtt() *mqttonnection {
-// 	return &mqttonnection{
-// 		ws: nil,
-// 	}
-// }
+	conn.client = mqtt.NewClient(opts)
+	if token := conn.client.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
 
-// Connect
-func (mqtt *mqttonnection) Connect() error {
-	var wsurl = "wss://node.offcncloud.com:8010"
-	var origin = "http://api.huobi.pro/"
-	var err error
-	mqtt.ws, err = websocket.Dial(wsurl, "", origin)
-	if err != nil {
-		panic(err)
+	if token := conn.client.Subscribe("111", 0, nil); token.Wait() && token.Error() != nil {
+		panic(token.Error())
 	}
-	go func() {
-		for {
-			var reply []byte
-			if err := websocket.Message.Receive(mqtt.ws, &reply); err != nil {
-				fmt.Println("error receive failed: ", err)
-			}
-			fmt.Println("reveived from client: ", reply)
-			mqtt.mutex.RLock()
-			handler := mqtt.onReceivedMessageHandler
-			mqtt.mutex.RUnlock()
-			if handler != nil {
-				go handler(string(reply))
-			}
-		}
-	}()
-	mqtt.mutex.RLock()
-	handler := mqtt.onConnectStatusHandler
-	mqtt.mutex.RUnlock()
-	if handler != nil {
-		go handler(string("Service is already running" +
-			" and currently does not support cross-network segment"))
-	}
-	return nil
 }
 
 // OnReceivedMessage
-func (mqtt *mqttonnection) OnStatusChange(f func(string)) {
-	mqtt.mutex.Lock()
-	defer mqtt.mutex.Unlock()
-	mqtt.onConnectStatusHandler = f
+func (conn *mqttonnection) OnReceivedMessage(f func([]byte)) {
+	conn.mutex.Lock()
+	defer conn.mutex.Unlock()
+	conn.onReceivedMessageHandler = f
 }
 
-// OnReceivedMessage
-func (mqtt *mqttonnection) OnReceivedMessage(f func(string)) {
-	mqtt.mutex.Lock()
-	defer mqtt.mutex.Unlock()
-	mqtt.onReceivedMessageHandler = f
-}
-
-// ReplyMessage
-func (mqtt *mqttonnection) ReplyMessage(msg string) {
-	var err error
-	if err = websocket.Message.Send(mqtt.ws, msg); err != nil {
-		fmt.Println("send failed:", err)
-		return
-	}
-	fmt.Println("send message: ", msg)
+// Publish
+func (conn *mqttonnection) Publish(topic string, msg string) {
+	token := conn.client.Publish(topic, 0, false, msg)
+	token.Wait()
 }

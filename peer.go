@@ -8,15 +8,19 @@ import (
 
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/examples/internal/signal"
-	"github.com/pion/webrtc/v3/examples/media-server/mqttclient"
 )
 
 type peer struct {
-	peerid         string
-	role           int
-	peerConnection *webrtc.PeerConnection
-	videoTrack     *webrtc.TrackLocalStaticRTP
-	rtpsender      *webrtc.RTPSender
+	peerid               string
+	role                 int
+	peerConnection       *webrtc.PeerConnection
+	videoTrack           *webrtc.TrackLocalStaticRTP
+	videoSender          *webrtc.RTPSender
+	audioTrack           *webrtc.TrackLocalStaticRTP
+	audioSender          *webrtc.RTPSender
+	whiteboardChannel    *webrtc.DataChannel
+	onSendMessageHandler func(topic, msg string)
+	publishersdp         *webrtc.SessionDescription
 }
 
 // CreatePeer is create a peer object
@@ -26,42 +30,41 @@ func CreatePeer(id string, role int) *peer {
 		role:           role,
 		peerConnection: nil,
 		videoTrack:     nil,
-		rtpsender:      nil,
+		videoSender:    nil,
+		audioTrack:     nil,
+		audioSender:    nil,
+		publishersdp:   nil,
 	}
 }
 
-func (p *peer) Init() bool {
+func (p *peer) Init(sdp *webrtc.SessionDescription) bool {
 	var err error
 	p.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
+				URLs: []string{"turn:node.offcncloud.com:9900"},
 			},
 		},
 	})
 	if err != nil {
 		return false
 	}
+
 	if p.role == 2 {
-		offer, err := p.peerConnection.CreateOffer(nil)
-		if err != nil {
-			return false
-		}
-		p.peerConnection.SetLocalDescription(offer)
-
-		jsonBytes, err := json.Marshal(offer)
-		if err != nil {
-			panic(err)
-		}
-
-		mqttclient.GetInstance().ReplyMessage(string(jsonBytes))
+		p.publishersdp = sdp
 	}
 	return true
 }
 
+func (p *peer) SetSendMessageHandler(f func(topic, msg string)) {
+	p.onSendMessageHandler = f
+}
+
 func (p *peer) HandleMessage(j jsonparser) {
 	command := GetValue(j, "type")
-	if command == "offer" {
+	if command == "sub" {
+		p.HandleSubscribe(j)
+	} else if command == "offer" {
 		p.HandleRemoteOffer(j)
 	} else if command == "answer" {
 		p.HandleRemoteAnswer(j)
@@ -75,7 +78,7 @@ func (p *peer) HandleMessage(j jsonparser) {
 	go func() {
 		rtcpBuf := make([]byte, 1500)
 		for {
-			if _, _, rtcpErr := p.rtpsender.Read(rtcpBuf); rtcpErr != nil {
+			if _, _, rtcpErr := p.videoSender.Read(rtcpBuf); rtcpErr != nil {
 				return
 			}
 		}
@@ -126,23 +129,67 @@ func (p *peer) HandleMessage(j jsonparser) {
 			panic(fmt.Sprintf("error during read: %s", err))
 		}
 
-		if _, err = p.videoTrack.Write(inboundRTPPacket[:n]); err != nil {
+		if _, err = p.videoTrack.Write(inboundRTPPacket[:3]); err != nil {
 			panic(err)
 		}
 	}
 }
 
+func (p *peer) HandleSubscribe(j jsonparser) {
+	sessionid := GetValue(j, "sessionid")
+	srcsessionid := GetValue(j, "srcsessionid")
+	peerid := GetValue(j, "peerid")
+
+	if err := p.peerConnection.SetLocalDescription(*p.publishersdp); err != nil {
+		panic(err)
+	}
+
+	// Response offer to subscriber
+	topic := GetValue(j, "topic")
+	msg, err := json.Marshal(map[string]interface{}{
+		"type":         "offer",
+		"sessionid":    sessionid,
+		"srcsessionid": srcsessionid,
+		"peerid":       peerid,
+		"sdp":          *p.publishersdp,
+		"code":         0,
+	})
+	if err != nil {
+		fmt.Println("generate json error:", err)
+	}
+	p.onSendMessageHandler(topic, string(msg))
+}
+
 // HandleRemoteOffer is
 func (p *peer) HandleRemoteOffer(j jsonparser) {
+	sessionid := GetValue(j, "sessionid")
+	srcsessionid := GetValue(j, "srcsessionid")
+	peerid := GetValue(j, "peerid")
 	strsdp := GetValue(j, "sdp")
-	// Create a video track
+
+	// Create the video track
 	var err error
-	p.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8}, "video", "pion")
+	p.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8}, "video", "pion-v")
 	if err != nil {
 		panic(err)
 	}
-	p.rtpsender, err = p.peerConnection.AddTrack(p.videoTrack)
+	p.videoSender, err = p.peerConnection.AddTrack(p.videoTrack)
 	if err != nil {
+		panic(err)
+	}
+
+	// Create the audio track
+	p.audioTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion-a")
+	if err != nil {
+		panic(err)
+	}
+	p.audioSender, err = p.peerConnection.AddTrack(p.audioTrack)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create the data channel for whiteboard
+	if p.whiteboardChannel, err = p.peerConnection.CreateDataChannel("whiteboard", nil); err != nil {
 		panic(err)
 	}
 
@@ -161,7 +208,7 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 		fmt.Printf("Got a local candidate: %s\n", candidate.String())
 	})
 
-	// Wait for the offer to be pasted
+	// Generate the offer sdp
 	offer := webrtc.SessionDescription{}
 	err = json.Unmarshal([]byte(strsdp), offer)
 	if err != nil {
@@ -178,16 +225,49 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 	if err != nil {
 		panic(err)
 	}
-	jsonBytes, err := json.Marshal(answer)
+
+	// Response answer to publisher
+	topic := GetValue(j, "topic")
+	msg, err := json.Marshal(map[string]interface{}{
+		"type":         "answer",
+		"sessionid":    sessionid,
+		"srcsessionid": srcsessionid,
+		"peerid":       peerid,
+		"sdp":          answer.SDP,
+		"code":         0,
+	})
 	if err != nil {
-		panic(err)
+		fmt.Println("generate json error:", err)
 	}
-	mqttclient.GetInstance().ReplyMessage(string(jsonBytes))
+	p.onSendMessageHandler(topic, string(msg))
 }
 
 // HandleRemoteAnswer is
 func (p *peer) HandleRemoteAnswer(j jsonparser) {
+	strsdp := GetValue(j, "sdp")
 
+	// Generate the answer sdp
+	answer := webrtc.SessionDescription{}
+	if err := json.Unmarshal([]byte(strsdp), answer); err != nil {
+		panic(err)
+	}
+
+	// Set the remote SessionDescription
+	if err := p.peerConnection.SetRemoteDescription(answer); err != nil {
+		panic(err)
+	}
+
+	// Set the handler for local ICE candidate
+	p.peerConnection.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		fmt.Printf("Got a local candidate: %s\n", candidate.String())
+	})
+
+	p.peerConnection.OnTrack(func(*webrtc.TrackRemote, *webrtc.RTPReceiver) {
+
+	})
+	p.peerConnection.OnDataChannel(func(*webrtc.DataChannel) {
+
+	})
 }
 
 // HandleRemoteCandidate is

@@ -14,9 +14,9 @@ func GetValue(m map[string]interface{}, key string) string {
 }
 
 // CreateJSONParser is
-func CreateJSONParser(str string) (m map[string]interface{}, err error) {
+func CreateJSONParser(str []byte) (m map[string]interface{}, err error) {
 	jsonobj := map[string]interface{}{}
-	unmarsha1Err := json.Unmarshal([]byte(str), &jsonobj)
+	unmarsha1Err := json.Unmarshal(str, &jsonobj)
 	if unmarsha1Err != nil {
 		return nil, unmarsha1Err
 	}

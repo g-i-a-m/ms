@@ -3,21 +3,21 @@
 package main
 
 import (
-	"fmt"
+	"sync"
 
 	"github.com/pion/webrtc/v3/examples/media-server/mqttclient"
 )
 
 func main() {
 	roommgr := CreateRoomMgr()
-	// mqtt := mqttclient.GetInstance()
-	mqttclient.GetInstance().OnStatusChange(func(s string) {
-		fmt.Printf("mqtt status: %s\n", s)
+	mqtt := mqttclient.CreateMqtt()
+	mqtt.OnReceivedMessage(roommgr.HandleMessage)
+	mqtt.Init()
+	roommgr.SetSendMessageHandler(func(topic, msg string) {
+		go mqtt.Publish(topic, msg)
 	})
-	mqttclient.GetInstance().OnReceivedMessage(func(s string) {
-		roommgr.HandleMessage(s)
-	})
-	if err := mqttclient.GetInstance().Connect(); err != nil {
-		panic(err)
-	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	wg.Wait()
 }
