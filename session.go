@@ -35,7 +35,7 @@ func (sess *session) HandleMessage(j jsonparser) {
 	sessionid := GetValue(j, "sessionid")
 	peerid := GetValue(j, "peerid")
 	// srcpeerid := GetValue(j, "srcpeerid")
-	if command == "push" {
+	if command == "publish" {
 		if _, ok := sess.publishers[peerid]; ok {
 			delete(sess.publishers, peerid)
 		}
@@ -46,7 +46,7 @@ func (sess *session) HandleMessage(j jsonparser) {
 
 		topic := GetValue(j, "topic")
 		msg, err := json.Marshal(map[string]interface{}{
-			"type":      "push",
+			"type":      "publish",
 			"sessionid": sessionid,
 			"peerid":    peerid,
 			"code":      0,
