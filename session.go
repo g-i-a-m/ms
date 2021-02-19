@@ -3,23 +3,26 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/pion/webrtc/v3"
 )
 
 type session struct {
+	pubmux               sync.RWMutex
+	submux               sync.RWMutex
 	sessionid            string
-	publisher            map[string]peer
-	subscriber           map[string]peer
+	publishers           map[string]peer
+	subscribers          map[string]peer
 	onSendMessageHandler func(topic, msg string)
 }
 
 // CreateSession is create a session object
 func CreateSession(id string) *session {
 	return &session{
-		sessionid:  id,
-		publisher:  make(map[string]peer),
-		subscriber: make(map[string]peer),
+		sessionid:   id,
+		publishers:  make(map[string]peer),
+		subscribers: make(map[string]peer),
 	}
 }
 
@@ -33,13 +36,13 @@ func (sess *session) HandleMessage(j jsonparser) {
 	peerid := GetValue(j, "peerid")
 	// srcpeerid := GetValue(j, "srcpeerid")
 	if command == "push" {
-		if _, ok := sess.publisher[peerid]; ok {
-			delete(sess.publisher, peerid)
+		if _, ok := sess.publishers[peerid]; ok {
+			delete(sess.publishers, peerid)
 		}
 		peer := CreatePeer(peerid, 1)
 		peer.Init(nil)
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
-		sess.publisher[peerid] = *peer
+		sess.publishers[peerid] = *peer
 
 		topic := GetValue(j, "topic")
 		msg, err := json.Marshal(map[string]interface{}{
@@ -53,8 +56,8 @@ func (sess *session) HandleMessage(j jsonparser) {
 		}
 		sess.onSendMessageHandler(topic, string(msg))
 	} else if command == "stoppush" {
-		if _, ok := sess.publisher[peerid]; ok {
-			delete(sess.publisher, peerid)
+		if _, ok := sess.publishers[peerid]; ok {
+			delete(sess.publishers, peerid)
 
 			topic := GetValue(j, "topic")
 			msg, err := json.Marshal(map[string]interface{}{
@@ -70,44 +73,76 @@ func (sess *session) HandleMessage(j jsonparser) {
 		}
 	} else if command == "sub" {
 		var sdp *webrtc.SessionDescription
-		if _, ok := sess.publisher[peerid]; ok {
-			sdp = sess.publisher[peerid].peerConnection.CurrentLocalDescription()
+		if _, ok := sess.publishers[peerid]; ok {
+			sdp = sess.publishers[peerid].peerConnection.CurrentLocalDescription()
 		}
-		if _, ok := sess.subscriber[peerid]; ok {
-			delete(sess.subscriber, peerid)
+		sess.submux.Lock()
+		if _, ok := sess.subscribers[peerid]; ok {
+			delete(sess.subscribers, peerid)
 		}
+		sess.submux.Unlock()
 		peer := CreatePeer(peerid, 2)
 		peer.Init(sdp)
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
-		sess.subscriber[peerid] = *peer
+		sess.submux.Lock()
+		sess.subscribers[peerid] = *peer
+		sess.submux.Unlock()
 		peer.HandleMessage(j)
 	} else if command == "stopsub" {
-		if _, ok := sess.subscriber[peerid]; ok {
-			delete(sess.subscriber, peerid)
+		sess.submux.Lock()
+		defer sess.submux.Unlock()
+		if _, ok := sess.subscribers[peerid]; ok {
+			delete(sess.subscribers, peerid)
 		}
 	} else if command == "offer" {
-		if _, ok := sess.publisher[peerid]; ok {
-			peer := sess.publisher[peerid]
+		if _, ok := sess.publishers[peerid]; ok {
+			peer := sess.publishers[peerid]
 			peer.HandleMessage(j)
 		} else {
 			fmt.Println("not publish yet:")
 		}
 	} else if command == "answer" {
-		if _, ok := sess.subscriber[peerid]; ok {
-			peer := sess.subscriber[peerid]
+		sess.submux.RLock()
+		defer sess.submux.RUnlock()
+		if _, ok := sess.subscribers[peerid]; ok {
+			peer := sess.subscribers[peerid]
 			peer.HandleMessage(j)
 		} else {
 			fmt.Println("not subscribe yet:")
 		}
 	} else if command == "candidate" {
-		if _, ok := sess.publisher[peerid]; ok {
-			peer := sess.publisher[peerid]
+		if _, ok := sess.publishers[peerid]; ok {
+			peer := sess.publishers[peerid]
 			peer.HandleMessage(j)
-		} else if _, ok := sess.subscriber[peerid]; ok {
-			peer := sess.subscriber[peerid]
+		} else if _, ok := sess.subscribers[peerid]; ok {
+			peer := sess.subscribers[peerid]
 			peer.HandleMessage(j)
 		} else {
 			fmt.Println("not publish/subscribe yet")
 		}
+	}
+}
+
+func (sess *session) OnReceivedVideoData(buff []byte) {
+	sess.submux.RLock()
+	defer sess.submux.RUnlock()
+	for _, value := range sess.subscribers {
+		value.deliverVideoData(buff)
+	}
+}
+
+func (sess *session) OnReceivedAudioData(buff []byte) {
+	sess.submux.RLock()
+	defer sess.submux.RUnlock()
+	for _, value := range sess.subscribers {
+		value.deliverAudioData(buff)
+	}
+}
+
+func (sess *session) OnReceivedAppData(buff []byte) {
+	sess.submux.RLock()
+	defer sess.submux.RUnlock()
+	for _, value := range sess.subscribers {
+		value.deliverAppData(buff)
 	}
 }

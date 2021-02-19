@@ -21,6 +21,7 @@ type peer struct {
 	whiteboardChannel    *webrtc.DataChannel
 	onSendMessageHandler func(topic, msg string)
 	publishersdp         *webrtc.SessionDescription
+	parent               *session
 }
 
 // CreatePeer is create a peer object
@@ -34,6 +35,7 @@ func CreatePeer(id string, role int) *peer {
 		audioTrack:     nil,
 		audioSender:    nil,
 		publishersdp:   nil,
+		parent:         nil,
 	}
 }
 
@@ -140,6 +142,40 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 	srcsessionid := GetValue(j, "srcsessionid")
 	peerid := GetValue(j, "peerid")
 
+	sdp, err := p.publishersdp.Unmarshal()
+	if err != nil {
+		panic(err)
+	}
+	for _, media := range sdp.MediaDescriptions {
+		fmt.Print(media, "\t")
+		if media.MediaName.Media == "video" {
+			// Create the video track
+			p.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8}, "video", "pion-v")
+			if err != nil {
+				panic(err)
+			}
+			p.videoSender, err = p.peerConnection.AddTrack(p.videoTrack)
+			if err != nil {
+				panic(err)
+			}
+		} else if media.MediaName.Media == "audio" {
+			// Create the audio track
+			p.audioTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion-a")
+			if err != nil {
+				panic(err)
+			}
+			p.audioSender, err = p.peerConnection.AddTrack(p.audioTrack)
+			if err != nil {
+				panic(err)
+			}
+		} else if media.MediaName.Media == "application" {
+			// Create the data channel for whiteboard
+			if p.whiteboardChannel, err = p.peerConnection.CreateDataChannel("whiteboard", nil); err != nil {
+				panic(err)
+			}
+		}
+	}
+
 	if err := p.peerConnection.SetLocalDescription(*p.publishersdp); err != nil {
 		panic(err)
 	}
@@ -165,10 +201,25 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 	sessionid := GetValue(j, "sessionid")
 	srcsessionid := GetValue(j, "srcsessionid")
 	peerid := GetValue(j, "peerid")
-	strsdp := GetValue(j, "sdp")
+	sdp := GetValue(j, "sdp")
+	// Generate the offer sdp
+	mapSdp := map[string]interface{}{
+		"type": "offer",
+		"sdp":  sdp,
+	}
+	offer := webrtc.SessionDescription{}
+	strJSON, err := json.Marshal(mapSdp)
+	err = json.Unmarshal(strJSON, &offer)
+	if err != nil {
+		panic(err)
+	}
+
+	// Set the remote SessionDescription
+	if err = p.peerConnection.SetRemoteDescription(offer); err != nil {
+		panic(err)
+	}
 
 	// Create the video track
-	var err error
 	p.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8}, "video", "pion-v")
 	if err != nil {
 		panic(err)
@@ -208,17 +259,12 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 		fmt.Printf("Got a local candidate: %s\n", candidate.String())
 	})
 
-	// Generate the offer sdp
-	offer := webrtc.SessionDescription{}
-	err = json.Unmarshal([]byte(strsdp), offer)
-	if err != nil {
-		panic(err)
-	}
-
-	// Set the remote SessionDescription
-	if err = p.peerConnection.SetRemoteDescription(offer); err != nil {
-		panic(err)
-	}
+	// Set the handler for data channel
+	p.peerConnection.OnDataChannel(func(channel *webrtc.DataChannel) {
+		channel.OnMessage(func(msg webrtc.DataChannelMessage) {
+			p.parent.OnReceivedVideoData(msg.Data)
+		})
+	})
 
 	// Create answer
 	answer, err := p.peerConnection.CreateAnswer(nil)
@@ -248,7 +294,7 @@ func (p *peer) HandleRemoteAnswer(j jsonparser) {
 
 	// Generate the answer sdp
 	answer := webrtc.SessionDescription{}
-	if err := json.Unmarshal([]byte(strsdp), answer); err != nil {
+	if err := json.Unmarshal([]byte(strsdp), &answer); err != nil {
 		panic(err)
 	}
 
@@ -272,8 +318,20 @@ func (p *peer) HandleRemoteAnswer(j jsonparser) {
 
 // HandleRemoteCandidate is
 func (p *peer) HandleRemoteCandidate(j jsonparser) {
-	// Set the remote ICE candidate
-	// strcandidate := GetValue(j, "candidate")
-	candi := webrtc.ICECandidateInit{}
-	p.peerConnection.AddICECandidate(candi)
+	strcandidate := GetValue(j, "candidate")
+	if err := p.peerConnection.AddICECandidate(webrtc.ICECandidateInit{Candidate: string(strcandidate)}); err != nil {
+		panic(err)
+	}
+}
+
+func (p *peer) deliverVideoData(buff []byte) {
+
+}
+
+func (p *peer) deliverAudioData(buff []byte) {
+
+}
+
+func (p *peer) deliverAppData(buff []byte) {
+
 }
