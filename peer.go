@@ -128,21 +128,6 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 		panic(err)
 	}
 
-	// Set the handler for local ICE candidate
-	p.peerConnection.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		fmt.Printf("Got a local candidate: %s\n", candidate.String())
-		msg, err := json.Marshal(map[string]interface{}{
-			"type":      "candidate",
-			"sessionid": sessionid,
-			"peerid":    peerid,
-			"candidate": candidate.String(),
-		})
-		if err != nil {
-			fmt.Println("generate json error:", err)
-		}
-		p.onSendMessageHandler(sessionid, string(msg))
-	})
-
 	// Response offer to subscriber
 	msg, err := json.Marshal(map[string]interface{}{
 		"type":         "offer",

@@ -248,7 +248,7 @@ async function mqttEventCallback(event) {
     }
   } else if (event.type=='push_failed') {
     //  TODO:
-  } else if (event.type=='answer_succeed') {
+  } else if (event.type=='recv_answer') {
     publishAnswerHandler(event.info);
   } else if (event.type=='recv_offer') {
     //  sub response

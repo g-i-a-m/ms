@@ -302,7 +302,7 @@ function offerHandler(msg) {
 function answerHandler(msg) {
   //  TODO: set remote sdp
   const event = {
-    type: 'answer_succeed',
+    type: 'recv_answer',
     info: msg
   };
   evnet_callback_(event);
