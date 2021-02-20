@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<!--
+ *  Copyright (c) 2015 The WebRTC project authors. All Rights Reserved.
+ *
+ *  Use of this source code is governed by a BSD-style license
+ *  that can be found in the LICENSE file in the root of the source
+ *  tree.
+-->
+<html lang="zh-CN">
+<head>
+
+    <meta charset="utf-8">
+    <meta http-equiv="x-dns-prefetch-control" content="on">
+    <link rel="dns-prefetch" href="dev-mqq.offcncloud.com">
+    <meta name="description" content="WebRTC code samples">
+    <meta name="viewport" content="width=device-width, user-scalable=yes, initial-scale=1, maximum-scale=1">
+    <meta itemprop="description" content="Client-side WebRTC code samples">
+    <meta itemprop="name" content="WebRTC code samples">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta id="theme-color" name="theme-color" content="#ffffff">
+
+    <base target="_blank">
+
+    <title>test application for whiteboard </title>
+    <link rel="stylesheet" href="css/css_main.css"/>
+    <link rel="stylesheet" href="css/main.css"/>
+
+</head>
+
+
+<body>
+
+<div id="container">
+    <video id="localVideo" style="width: 240px;height: 180px;" playsinline autoplay muted></video>
+    <video id="remoteVideo" style="width: 240px;height: 180px;" playsinline autoplay></video>
+    <video id="docVideo" style="width: 240px;height: 180px;" playsinline autoplay muted></video>
+
+    <div class="box">
+        <button id="joinButton">join</button>
+
+        <button id="pushButton">Publish</button>
+        <button id="stoppublishButton">Stop Publish</button>
+
+        <button id="pullButton">Pull</button>
+        <button id="stoppullButton">Stop Pull</button>
+
+        <button id="pushdocButton">doc-Publish</button>
+        <button id="stoppushdocButton">doc-stop Publish</button>
+    </div>
+
+    <div class="box">
+        <span>SDP Semantics:</span>
+        <select id="sdpSemantics">
+            <option selected value="">Default</option>
+            <option value="unified-plan">Unified Plan</option>
+            <option value="plan-b">Plan B</option>
+        </select>
+    </div>
+</div>
+
+<script src="https://webrtc.github.io/adapter/adapter-latest.js" async></script>
+<script src="js/mqtt.min.js"></script>
+<!--script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script-->
+<script src="js/mqttprocesser.js"></script>
+<script src="js/ms_client.js"></script>
+<script src="js/main.js" async></script>
+<script src="js/ga.js"></script>
+</body>
+</html>

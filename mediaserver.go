@@ -3,6 +3,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/pion/webrtc/v3/examples/media-server/mqttclient"
 )
 
@@ -12,7 +14,8 @@ func main() {
 	mqtt.OnReceivedMessage(roommgr.HandleMessage)
 	mqtt.Init()
 	roommgr.SetSendMessageHandler(func(topic, msg string) {
-		go mqtt.Publish(topic, msg)
+		fmt.Printf("send to %s %s\n", topic, msg)
+		mqtt.Publish(topic, msg)
 	})
 
 	// Block forever

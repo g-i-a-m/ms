@@ -35,10 +35,12 @@ func (rm *roommgr) HandleMessage(msg []byte) {
 		}
 
 		room := CreateRoom(roomid)
+		room.SetSendMessageHandler(rm.onSendMessageHandler)
 		rm.rooms[roomid] = *room
 		room.HandleMessage(m)
-	} else if command == "logout" ||
-		command == "push" ||
+	} else if command == "heartbeat" ||
+		command == "logout" ||
+		command == "publish" ||
 		command == "stoppush" ||
 		command == "sub" ||
 		command == "stopsub" ||
@@ -52,6 +54,6 @@ func (rm *roommgr) HandleMessage(msg []byte) {
 			fmt.Println("room not created yet:", msg)
 		}
 	} else {
-		fmt.Println("unsupport msg type:", msg)
+		fmt.Println("roommgr unsupport msg type:", string(msg))
 	}
 }

@@ -34,9 +34,9 @@ func (r *room) HandleMessage(j jsonparser) {
 			delete(r.sessions, sessionid)
 		}
 		sess := CreateSession(sessionid)
+		sess.SetSendMessageHandler(r.onSendMessageHandler)
 		r.sessions[sessionid] = *sess
 
-		topic := GetValue(j, "topic")
 		msg, err := json.Marshal(map[string]interface{}{
 			"type":      "login",
 			"sessionid": sessionid,
@@ -45,12 +45,19 @@ func (r *room) HandleMessage(j jsonparser) {
 		if err != nil {
 			fmt.Println("generate json error:", err)
 		}
-		r.onSendMessageHandler(topic, string(msg))
+		r.onSendMessageHandler(sessionid, string(msg))
+	} else if command == "heartbeat" {
+		if _, ok := r.sessions[sessionid]; ok {
+			sess := r.sessions[sessionid]
+			sess.HandleMessage(j)
+		} else {
+			fmt.Println("not login yet:")
+		}
 	} else if command == "logout" {
 		if _, ok := r.sessions[sessionid]; ok {
 			delete(r.sessions, sessionid)
 		}
-	} else if command == "push" ||
+	} else if command == "publish" ||
 		command == "offer" ||
 		command == "stoppush" {
 		if _, ok := r.sessions[sessionid]; ok {
@@ -81,5 +88,7 @@ func (r *room) HandleMessage(j jsonparser) {
 		} else {
 			fmt.Println("not found session:", sessionid)
 		}
+	} else {
+		fmt.Println("room unsupport msg type:", command)
 	}
 }

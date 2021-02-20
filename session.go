@@ -44,7 +44,6 @@ func (sess *session) HandleMessage(j jsonparser) {
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
 		sess.publishers[peerid] = *peer
 
-		topic := GetValue(j, "topic")
 		msg, err := json.Marshal(map[string]interface{}{
 			"type":      "publish",
 			"sessionid": sessionid,
@@ -54,12 +53,11 @@ func (sess *session) HandleMessage(j jsonparser) {
 		if err != nil {
 			fmt.Println("generate json error:", err)
 		}
-		sess.onSendMessageHandler(topic, string(msg))
+		sess.onSendMessageHandler(sessionid, string(msg))
 	} else if command == "stoppush" {
 		if _, ok := sess.publishers[peerid]; ok {
 			delete(sess.publishers, peerid)
 
-			topic := GetValue(j, "topic")
 			msg, err := json.Marshal(map[string]interface{}{
 				"type":      "stoppush",
 				"sessionid": sessionid,
@@ -69,7 +67,7 @@ func (sess *session) HandleMessage(j jsonparser) {
 			if err != nil {
 				fmt.Println("generate json error:", err)
 			}
-			sess.onSendMessageHandler(topic, string(msg))
+			sess.onSendMessageHandler(sessionid, string(msg))
 		}
 	} else if command == "sub" {
 		var sdp *webrtc.SessionDescription
@@ -120,6 +118,8 @@ func (sess *session) HandleMessage(j jsonparser) {
 		} else {
 			fmt.Println("not publish/subscribe yet")
 		}
+	} else {
+		fmt.Println("session unsupport msg type:", command)
 	}
 }
 

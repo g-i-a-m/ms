@@ -77,11 +77,12 @@ func (p *peer) HandleMessage(j jsonparser) {
 		p.HandleRemoteAnswer(j)
 	} else if command == "candidate" {
 		p.HandleRemoteCandidate(j)
+	} else {
+		fmt.Println("peer unsupport msg type:", command)
 	}
 }
 
 func (p *peer) HandleSubscribe(j jsonparser) {
-	topic := GetValue(j, "topic")
 	sessionid := GetValue(j, "sessionid")
 	srcsessionid := GetValue(j, "srcsessionid")
 	peerid := GetValue(j, "peerid")
@@ -136,7 +137,7 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 		if err != nil {
 			fmt.Println("generate json error:", err)
 		}
-		p.onSendMessageHandler(topic, string(msg))
+		p.onSendMessageHandler(sessionid, string(msg))
 	})
 
 	// Response offer to subscriber
@@ -151,12 +152,11 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 	if err != nil {
 		fmt.Println("generate json error:", err)
 	}
-	p.onSendMessageHandler(topic, string(msg))
+	p.onSendMessageHandler(sessionid, string(msg))
 }
 
 // HandleRemoteOffer is
 func (p *peer) HandleRemoteOffer(j jsonparser) {
-	topic := GetValue(j, "topic")
 	sessionid := GetValue(j, "sessionid")
 	peerid := GetValue(j, "peerid")
 	sdp := GetValue(j, "sdp")
@@ -200,7 +200,7 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 		if err != nil {
 			fmt.Println("generate json error:", err)
 		}
-		p.onSendMessageHandler(topic, string(msg))
+		p.onSendMessageHandler(sessionid, string(msg))
 	})
 
 	// Set the handler for data channel
@@ -231,7 +231,7 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 	if err != nil {
 		fmt.Println("generate json error:", err)
 	}
-	p.onSendMessageHandler(topic, string(msg))
+	p.onSendMessageHandler(sessionid, string(msg))
 }
 
 // HandleRemoteAnswer is

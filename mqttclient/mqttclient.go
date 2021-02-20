@@ -53,7 +53,7 @@ func (conn *mqttonnection) Init() {
 
 	opts.SetDefaultPublishHandler(func(client mqtt.Client, msg mqtt.Message) {
 		fmt.Printf("Received message from: %s %s\n", msg.Topic(), msg.Payload())
-		go conn.onReceivedMessageHandler(msg.Payload())
+		conn.onReceivedMessageHandler(msg.Payload())
 	})
 	opts.SetOnConnectHandler(connectHandler)
 	opts.SetConnectionLostHandler(connectLostHandler)
@@ -63,7 +63,7 @@ func (conn *mqttonnection) Init() {
 		panic(token.Error())
 	}
 
-	if token := conn.client.Subscribe("111", 0, nil); token.Wait() && token.Error() != nil {
+	if token := conn.client.Subscribe("Catherine", 0, nil); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 }
