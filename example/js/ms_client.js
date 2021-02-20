@@ -253,6 +253,8 @@ async function mqttEventCallback(event) {
   } else if (event.type=='recv_offer') {
     //  sub response
     subOfferHandler(event.info);
+  } else if (event.type=='recv_candidate') {
+    handleRemoteCandi(event.info);
   } else {
     console.log("unknow event type:%s",event.type);
   }
@@ -289,7 +291,15 @@ async function startPublishOffer(msg, streamid) {
       const opt = getScreenShareConstraints();
       stream = await navigator.mediaDevices.getDisplayMedia(opt);
       //  peerOpt = {sdpSemantics: 'plan-b'};
-      peerOpt = {sdpSemantics: 'unified-plan'};
+      peerOpt = {
+        iceServers: [{
+            urls: "turn:node.offcncloud.com:9900",
+            username: "ctf",
+            credential: "ctf123"
+        }],
+        iceTransportPolicy: "all",
+        sdpSemantics: 'unified-plan'
+      };
     } else {
       const media_option = {
         audio: {
@@ -305,7 +315,15 @@ async function startPublishOffer(msg, streamid) {
         }
       };
       stream = await navigator.mediaDevices.getUserMedia(media_option);// {audio: true, video: true}
-      peerOpt = {sdpSemantics: 'unified-plan'};
+      peerOpt = {
+        iceServers: [{
+            urls: "turn:node.offcncloud.com:9900",
+            username: "ctf",
+            credential: "ctf123"
+        }],
+        iceTransportPolicy: "all",
+        sdpSemantics: 'unified-plan'
+      };
     }
   } catch (e) {
     publish_map_.delete(clientid_+'_'+streamid);
@@ -339,7 +357,15 @@ async function startPublishOffer(msg, streamid) {
   }
 
   console.log('Created publish peerconnection: %s', msg.fid+'_'+streamid);
-  peer.addEventListener('icecandidate', e => onIceCandidate(peer, e));
+  // 向对方发送nat candidate
+  peer.onicecandidate = event => {
+    if (!event.candidate) {
+        return;
+    }
+    console.log('RTCPeerConnection callback candidate:', event.candidate);
+    candidate(event.candidate,streamid)
+  };
+  // peer.addEventListener('icecandidate', e => onIceCandidate(peer, e));
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
 
   stream.getTracks().forEach(track => peer.addTrack(track, stream));
@@ -400,7 +426,15 @@ function subscribe(userid, streamid, videolable) {
   };
   node.peer_conn = peer;
   subscribe_map_.set(userid+'_'+streamid, node);
-  peer.addEventListener('icecandidate', e => onIceCandidate(peer, e));
+  // 向对方发送nat candidate
+  peer.onicecandidate = event => {
+    if (!event.candidate) {
+        return;
+    }
+    console.log('RTCPeerConnection callback candidate:', event.candidate);
+    candidate(event.candidate,streamid)
+  };
+  // peer.addEventListener('icecandidate', e => onIceCandidate(peer, e));
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
   peer.addEventListener('track', e => gotRemoteStream(userid, streamid, e));
   sub(userid, streamid);
@@ -428,6 +462,11 @@ async function subOfferHandler(msg) {
   } catch (e) {
     console.log(`Failed to create sdp: ${e.toString()}`);
   }
+}
+
+async function handleRemoteCandi(msg) {
+  const candi = new RTCIceCandidate(msg.candidate);
+  await peer.addIceCandidate(candi);
 }
 
 function gotRemoteStream(userid, streamid, e) {

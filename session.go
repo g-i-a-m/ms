@@ -35,7 +35,9 @@ func (sess *session) HandleMessage(j jsonparser) {
 	sessionid := GetValue(j, "sessionid")
 	peerid := GetValue(j, "peerid")
 	// srcpeerid := GetValue(j, "srcpeerid")
-	if command == "publish" {
+	if command == "heartbeat" {
+
+	} else if command == "publish" {
 		if _, ok := sess.publishers[peerid]; ok {
 			delete(sess.publishers, peerid)
 		}

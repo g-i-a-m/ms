@@ -158,12 +158,13 @@ async function answer(fid, tid, sid, sdp) {
 }
 
 //  answer for subscribe stream
-async function candidata(candidata) {
+async function candidate(candi,peerid) {
   const request={
-    type: 'candidata',
+    type: 'candidate',
     sessionid: sessionid_,
     roomid: roomid_,
-    candidata: candidata
+    peerid: peerid,
+    candidate: candi,
   };
   const jsonText=JSON.stringify(request);
   console.log('send msg:%s %s', mqtt_topic_, jsonText);
@@ -212,8 +213,8 @@ function responseHandler(msg) {
     offerHandler(json);
   } else if (json.type == 'answer') {
     answerHandler(json);
-  } else if (json.type == 'candidata') {
-    candidataHandler(json);
+  } else if (json.type == 'candidate') {
+    candidateHandler(json);
   } else if (json.type == 'unpush') {
     unpushHandler(json);
   } else if (json.type == 'sub') {
@@ -307,8 +308,13 @@ function answerHandler(msg) {
   evnet_callback_(event);
 }
 
-function candidataHandler(msg) {
-  //  TODO: set candidata
+function candidateHandler(msg) {
+  //  TODO: set candidate
+  const event = {
+    type: 'recv_candidate',
+    info: msg
+  };
+  evnet_callback_(event);
 }
 
 function unpushHandler(msg) {

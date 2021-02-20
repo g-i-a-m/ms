@@ -49,12 +49,16 @@ func (p *peer) Init(sdp *webrtc.SessionDescription) bool {
 	p.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
-				URLs: []string{"turn:node.offcncloud.com:9900"},
+				URLs:       []string{"turn:node.offcncloud.com:9900"},
+				Username:   "ctf",
+				Credential: "ctf123",
 			},
 		},
+		ICETransportPolicy: webrtc.NewICETransportPolicy("all"),
 	})
 	if err != nil {
-		return false
+		panic(err)
+		// return false
 	}
 
 	if p.role == 2 {
@@ -236,6 +240,8 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 
 // HandleRemoteAnswer is
 func (p *peer) HandleRemoteAnswer(j jsonparser) {
+	sessionid := GetValue(j, "sessionid")
+	peerid := GetValue(j, "peerid")
 	strsdp := GetValue(j, "sdp")
 
 	// Generate the answer sdp
@@ -253,6 +259,16 @@ func (p *peer) HandleRemoteAnswer(j jsonparser) {
 	// Set the handler for local ICE candidate
 	p.peerConnection.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		fmt.Printf("Got a local candidate: %s\n", candidate.String())
+		msg, err := json.Marshal(map[string]interface{}{
+			"type":      "candidate",
+			"sessionid": sessionid,
+			"peerid":    peerid,
+			"candidate": candidate.String(),
+		})
+		if err != nil {
+			fmt.Println("generate json error:", err)
+		}
+		p.onSendMessageHandler(sessionid, string(msg))
 	})
 }
 
