@@ -42,7 +42,10 @@ func (sess *session) HandleMessage(j jsonparser) {
 			delete(sess.publishers, peerid)
 		}
 		peer := CreatePeer(peerid, 1)
-		peer.Init(nil)
+		if ret := peer.Init(nil); !ret {
+			fmt.Println("publish to create peer failed")
+			return
+		}
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
 		sess.publishers[peerid] = *peer
 
@@ -82,7 +85,10 @@ func (sess *session) HandleMessage(j jsonparser) {
 		}
 		sess.submux.Unlock()
 		peer := CreatePeer(peerid, 2)
-		peer.Init(sdp)
+		if ret := peer.Init(sdp); !ret {
+			fmt.Println("sub to create peer failed")
+			return
+		}
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
 		sess.submux.Lock()
 		sess.subscribers[peerid] = *peer

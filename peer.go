@@ -57,8 +57,7 @@ func (p *peer) Init(sdp *webrtc.SessionDescription) bool {
 		ICETransportPolicy: webrtc.NewICETransportPolicy("all"),
 	})
 	if err != nil {
-		panic(err)
-		// return false
+		return false
 	}
 
 	if p.role == 2 {
