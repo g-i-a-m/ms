@@ -33,6 +33,7 @@ func (sess *session) SetSendMessageHandler(f func(topic, msg string)) {
 func (sess *session) HandleMessage(j jsonparser) {
 	command := GetValue(j, "type")
 	sessionid := GetValue(j, "sessionid")
+	srcsessionid := GetValue(j, "srcsessionid")
 	peerid := GetValue(j, "peerid")
 	// srcpeerid := GetValue(j, "srcpeerid")
 	if command == "heartbeat" {
@@ -41,9 +42,9 @@ func (sess *session) HandleMessage(j jsonparser) {
 		if _, ok := sess.publishers[peerid]; ok {
 			delete(sess.publishers, peerid)
 		}
-		peer := CreatePeer(peerid, 1)
-		if ret := peer.Init(nil); !ret {
-			fmt.Println("publish to create peer failed")
+		peer, err := CreatePublishPeer(sessionid, peerid)
+		if err != nil {
+			fmt.Println("publish to create peer failed", err)
 			return
 		}
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
@@ -84,8 +85,8 @@ func (sess *session) HandleMessage(j jsonparser) {
 			delete(sess.subscribers, peerid)
 		}
 		sess.submux.Unlock()
-		peer := CreatePeer(peerid, 2)
-		if ret := peer.Init(sdp); !ret {
+		peer, err := CreateSubscribePeer(sessionid, srcsessionid, peerid, sdp)
+		if err != nil {
 			fmt.Println("sub to create peer failed")
 			return
 		}

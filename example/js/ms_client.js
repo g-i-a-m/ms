@@ -105,68 +105,68 @@ async function leave_room() {
 }
 
 //  publish stream
-async function publish_local_stream(streamid, videolable) {
+async function publish_local_stream(peerid, videolable) {
   if (mqtt_connected_ && joined_room_) {
-    if (publish_map_.has(clientid_+'_'+streamid)) {
-      console.log(streamid+' stream has been published and would be republished now');
-      stopPublish(streamid);
+    if (publish_map_.has(clientid_+'_'+peerid)) {
+      console.log(peerid+' stream has been published and would be republished now');
+      stopPublish(peerid);
     }
     const node={
-      sid: streamid,
+      sid: peerid,
       peer_conn: null,
       video_wnd: videolable
     };
-    publish_map_.set(clientid_+'_'+streamid, node);
-    authPush(streamid);
+    publish_map_.set(clientid_+'_'+peerid, node);
+    authPush(peerid);
   } else {
     console.log('not connect to mqtt or not join, please try publish stream later...');
   }
 }
 
 //  unpublish stream
-async function unpublish_local_stream(streamid) {
+async function unpublish_local_stream(peerid) {
   if (mqtt_connected_ && joined_room_) {
-    stopPublish(streamid);
+    stopPublish(peerid);
   } else {
     console.log('not connect to mqtt, please try unpublish stream later...');
   }
 }
 
 //  publish stream
-async function publish_screenshare(streamid, videolable) {
-  if (publish_map_.has(clientid_+'_'+streamid)) {
-    console.log(streamid+' stream has been published and would be republished now');
-    stopPublish(streamid);
+async function publish_screenshare(peerid, videolable) {
+  if (publish_map_.has(clientid_+'_'+peerid)) {
+    console.log(peerid+' stream has been published and would be republished now');
+    stopPublish(peerid);
   }
   if (mqtt_connected_ && joined_room_) {
     const node={
-      sid: streamid,
+      sid: peerid,
       peer_conn: null,
       video_wnd: videolable
     };
-    publish_map_.set(clientid_+'_'+streamid, node);
-    authPush(streamid);
+    publish_map_.set(clientid_+'_'+peerid, node);
+    authPush(peerid);
   } else {
     console.log('not connect to mqtt, please try publish stream later...');
   }
 }
 
 //  unpublish stream
-async function unpublish_screenshare(streamid) {
+async function unpublish_screenshare(peerid) {
   if (mqtt_connected_ && joined_room_) {
-    stopPublish(streamid);
+    stopPublish(peerid);
   } else {
     console.log('not connect to mqtt, please try unpublish stream later...');
   }
 }
 
 //  subscribe audio stream
-async function subscribe_remote_stream(userid, streamid, videolable) {
+async function subscribe_remote_stream(userid, peerid, videolable) {
   if (mqtt_connected_ && joined_room_) {
     for (const [key, value] of usermap_) {
       if (key!=clientid_) {
         for (let i =0; i < value.length; i++) {
-          if (value[i]===streamid) {
+          if (value[i]===peerid) {
             subscribe(key, value[i], videolable);
             break;
           }
@@ -180,13 +180,13 @@ async function subscribe_remote_stream(userid, streamid, videolable) {
 }
 
 //  unsubscribe audio stream
-async function unsubscribe_remote_stream(streamid) {
+async function unsubscribe_remote_stream(peerid) {
   if (mqtt_connected_ && joined_room_) {
     if (mqtt_connected_ && joined_room_) {
       for (const [key, value] of usermap_) {
         if (key!=clientid_) {
           for (let i =0; i < value.length; i++) {
-            if (value[i]===streamid) {
+            if (value[i]===peerid) {
               stopPull(key, value[i]);
               break;
             }
@@ -282,12 +282,12 @@ function getScreenShareConstraints() {
   return displayMediaStreamConstraints;
 }
 
-async function startPublishOffer(msg, streamid) {
+async function startPublishOffer(msg, peerid) {
   let stream;
   let peerOpt;
   
   try {
-    if (streamid=='window') {
+    if (peerid=='window') {
       const opt = getScreenShareConstraints();
       stream = await navigator.mediaDevices.getDisplayMedia(opt);
       //  peerOpt = {sdpSemantics: 'plan-b'};
@@ -326,11 +326,11 @@ async function startPublishOffer(msg, streamid) {
       };
     }
   } catch (e) {
-    publish_map_.delete(clientid_+'_'+streamid);
+    publish_map_.delete(clientid_+'_'+peerid);
     alert(`getUserMedia() error: ${e.name}`);
   }
   
-  const key = msg.sessionid+'_'+streamid;
+  const key = msg.sessionid+'_'+peerid;
   if (publish_map_.has(key)) {
     publish_map_.get(key).video_wnd.srcObject = stream;
   } else {
@@ -356,14 +356,14 @@ async function startPublishOffer(msg, streamid) {
     return;
   }
 
-  console.log('Created publish peerconnection: %s', msg.fid+'_'+streamid);
+  console.log('Created publish peerconnection: %s', msg.fid+'_'+peerid);
   // 向对方发送nat candidate
   peer.onicecandidate = event => {
     if (!event.candidate) {
         return;
     }
     console.log('RTCPeerConnection callback candidate:', event.candidate);
-    candidate(event.candidate,streamid)
+    candidate(event.candidate,peerid)
   };
   // peer.addEventListener('icecandidate', e => onIceCandidate(peer, e));
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
@@ -373,7 +373,7 @@ async function startPublishOffer(msg, streamid) {
   try {
     const offer_sdp = await peer.createOffer({offerToReceiveAudio: 1, offerToReceiveVideo: 1});
     peer.setLocalDescription(offer_sdp);
-    offer(streamid, offer_sdp.sdp);
+    offer(peerid, offer_sdp.sdp);
   } catch (e) {
     console.log('Failed to create sdp: ${e.toString()}');
   }
@@ -386,36 +386,34 @@ async function publishAnswerHandler(msg) {
   };
 
   try {
-    const key = msg.sessionid+'_'+msg.streamid;
+    const key = msg.sessionid+'_'+msg.peerid;
     const peer = publish_map_.get(key).peer_conn;
     peer.setRemoteDescription(answer_sdp);
-    const candi = new RTCIceCandidate(msg.sdp);
-    await peer.addIceCandidate(candi);
   } catch (e) {
-    console.log(`add Ice Candidate failed: ${e.toString()}`);
+    console.log(`setRemoteDescription failed: ${e.toString()}`);
   }
 }
 
 function handlePub(msg) {
   if (!usermap_.has(msg.fid)) {
     const list = [];
-    list.push(msg.streamid);
+    list.push(msg.peerid);
     usermap_.set(msg.fid, list);
   } else {
-    usermap_.get(msg.fid).push(msg.streamid);
+    usermap_.get(msg.fid).push(msg.peerid);
   }
 }
 
 function handleUnpub(msg) {
   if (usermap_.has(msg.fid)) {
-    usermap_.get(msg.fid).remove(msg.streamid);
+    usermap_.get(msg.fid).remove(msg.peerid);
   }
 }
 
-function subscribe(userid, streamid, videolable) {
-  if (publish_map_.has(userid+'_'+streamid)) {
-    console.log(streamid+' stream has been subscribed and would be resubscribed now');
-    stopPull(key, streamid);
+function subscribe(userid, peerid, videolable) {
+  if (publish_map_.has(userid+'_'+peerid)) {
+    console.log(peerid+' stream has been subscribed and would be resubscribed now');
+    stopPull(key, peerid);
   }
   peer = new RTCPeerConnection({sdpSemantics: 'unified-plan'}); // {sdpSemantics: "unified-plan"}
   const sem = peer.getConfiguration().sdpSemantics;
@@ -425,19 +423,19 @@ function subscribe(userid, streamid, videolable) {
     video_wnd: videolable
   };
   node.peer_conn = peer;
-  subscribe_map_.set(userid+'_'+streamid, node);
+  subscribe_map_.set(userid+'_'+peerid, node);
   // 向对方发送nat candidate
   peer.onicecandidate = event => {
     if (!event.candidate) {
         return;
     }
     console.log('RTCPeerConnection callback candidate:', event.candidate);
-    candidate(event.candidate,streamid)
+    candidate(event.candidate,peerid)
   };
   // peer.addEventListener('icecandidate', e => onIceCandidate(peer, e));
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
-  peer.addEventListener('track', e => gotRemoteStream(userid, streamid, e));
-  sub(userid, streamid);
+  peer.addEventListener('track', e => gotRemoteStream(userid, peerid, e));
+  sub(userid, peerid);
 }
 
 async function subOfferHandler(msg) {
@@ -445,7 +443,7 @@ async function subOfferHandler(msg) {
     sdp: msg.sdp,
     type: 'offer'
   };
-  const key = msg.fid+'_'+msg.streamid;
+  const key = msg.fid+'_'+msg.peerid;
   const peer = subscribe_map_.get(key).peer_conn;
   peer.setRemoteDescription(offer_sdp);
   stopPullButton.disabled = false;
@@ -456,7 +454,7 @@ async function subOfferHandler(msg) {
     };
     const answersdp = await peer.createAnswer(answerOptions);
     peer.setLocalDescription(answersdp);
-    answer(clientid_, msg.fid, msg.streamid, answersdp.sdp);
+    answer(clientid_, msg.fid, msg.peerid, answersdp.sdp);
     const candi = new RTCIceCandidate(msg.sdp);
     await peer.addIceCandidate(candi);
   } catch (e) {
@@ -469,10 +467,10 @@ async function handleRemoteCandi(msg) {
   await peer.addIceCandidate(candi);
 }
 
-function gotRemoteStream(userid, streamid, e) {
+function gotRemoteStream(userid, peerid, e) {
   if (remoteVideo.srcObject !== e.streams[0]) {
-    subscribe_map_.get(userid+'_'+streamid).video_wnd.srcObject = e.streams[0];
-    console.log('%s_%s received remote stream', userid, streamid);
+    subscribe_map_.get(userid+'_'+peerid).video_wnd.srcObject = e.streams[0];
+    console.log('%s_%s received remote stream', userid, peerid);
   }
 }
 
@@ -494,24 +492,24 @@ function onIceStateChange(peer, event) {
   }
 }
 
-function stopPublish(streamid) {
-  const key = clientid_+'_'+streamid;
+function stopPublish(peerid) {
+  const key = clientid_+'_'+peerid;
   const peer = publish_map_.get(key).peer_conn;
   //  peer.stream.getTracks().forEach(track => track.stop());
   publish_map_.get(key).video_wnd.srcObject = null;
   peer.close();
   publish_map_.get(key).peer_conn = null;
   publish_map_.delete(key);
-  unpush(streamid);
+  unpush(peerid);
 }
 
-function stopPull(userid, streamid) {
-  const key = userid+'_'+streamid;
+function stopPull(userid, peerid) {
+  const key = userid+'_'+peerid;
   const peer = subscribe_map_.get(key).peer_conn;
   //  peer.stream.getTracks().forEach(track => track.stop());
   subscribe_map_.get(key).video_wnd.srcObject = null;
   peer.close();
   subscribe_map_.get(key).peer_conn = null;
   subscribe_map_.delete(key);
-  unsub(userid, streamid);
+  unsub(userid, peerid);
 }
