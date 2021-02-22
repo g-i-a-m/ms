@@ -365,7 +365,7 @@ async function startPublishOffer(msg, peerid) {
     console.log('RTCPeerConnection callback candidate:', event.candidate);
     candidate(event.candidate,peerid)
   };
-  // peer.addEventListener('icecandidate', e => onIceCandidate(peer, e));
+
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
 
   stream.getTracks().forEach(track => peer.addTrack(track, stream));
@@ -432,7 +432,7 @@ function subscribe(userid, peerid, videolable) {
     console.log('RTCPeerConnection callback candidate:', event.candidate);
     candidate(event.candidate,peerid)
   };
-  // peer.addEventListener('icecandidate', e => onIceCandidate(peer, e));
+
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
   peer.addEventListener('track', e => gotRemoteStream(userid, peerid, e));
   sub(userid, peerid);
@@ -455,15 +455,14 @@ async function subOfferHandler(msg) {
     const answersdp = await peer.createAnswer(answerOptions);
     peer.setLocalDescription(answersdp);
     answer(clientid_, msg.fid, msg.peerid, answersdp.sdp);
-    const candi = new RTCIceCandidate(msg.sdp);
-    await peer.addIceCandidate(candi);
   } catch (e) {
     console.log(`Failed to create sdp: ${e.toString()}`);
   }
 }
 
 async function handleRemoteCandi(msg) {
-  const candi = new RTCIceCandidate(msg.candidate);
+  var candiInit = JSON.parse(msg.candidate);
+  const candi = new RTCIceCandidate(candiInit);
   await peer.addIceCandidate(candi);
 }
 
@@ -472,17 +471,6 @@ function gotRemoteStream(userid, peerid, e) {
     subscribe_map_.get(userid+'_'+peerid).video_wnd.srcObject = e.streams[0];
     console.log('%s_%s received remote stream', userid, peerid);
   }
-}
-
-async function onIceCandidate(peer, event) {
-  try {
-    if (event.candidate != null) {
-      await peer.addIceCandidate(event.candidate);
-    }
-  } catch (e) {
-    console.log(`add Ice Candidate failed: ${e.toString()}`);
-  }
-  console.log(`ICE candidate:\n${event.candidate ? event.candidate.candidate : '(null)'}`);
 }
 
 function onIceStateChange(peer, event) {
