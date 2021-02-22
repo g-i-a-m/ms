@@ -396,18 +396,18 @@ async function publishAnswerHandler(msg) {
 }
 
 function handlePub(msg) {
-  if (!usermap_.has(msg.fid)) {
+  if (!usermap_.has(msg.sessionid)) {
     const list = [];
     list.push(msg.peerid);
-    usermap_.set(msg.fid, list);
+    usermap_.set(msg.sessionid, list);
   } else {
-    usermap_.get(msg.fid).push(msg.peerid);
+    usermap_.get(msg.sessionid).push(msg.peerid);
   }
 }
 
 function handleUnpub(msg) {
-  if (usermap_.has(msg.fid)) {
-    usermap_.get(msg.fid).remove(msg.peerid);
+  if (usermap_.has(msg.sessionid)) {
+    usermap_.get(msg.sessionid).remove(msg.peerid);
   }
 }
 

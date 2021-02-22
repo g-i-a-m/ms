@@ -179,6 +179,7 @@ async function sub(clientid, streamid) {
     type: 'sub',
     roomid: roomid_,
     sessionid: sessionid_,
+    srcsessionid:clientid,
     peerid: streamid
   };
   const jsonText=JSON.stringify(request);

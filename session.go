@@ -12,17 +12,19 @@ type session struct {
 	pubmux               sync.RWMutex
 	submux               sync.RWMutex
 	sessionid            string
-	publishers           map[string]peer
-	subscribers          map[string]peer
+	publishers           map[string]*peer
+	subscribers          map[string]*peer
 	onSendMessageHandler func(topic, msg string)
+	parent               *room
 }
 
 // CreateSession is create a session object
-func CreateSession(id string) *session {
+func CreateSession(r *room, id string) *session {
 	return &session{
 		sessionid:   id,
-		publishers:  make(map[string]peer),
-		subscribers: make(map[string]peer),
+		publishers:  make(map[string]*peer),
+		subscribers: make(map[string]*peer),
+		parent:      r,
 	}
 }
 
@@ -42,13 +44,13 @@ func (sess *session) HandleMessage(j jsonparser) {
 		if _, ok := sess.publishers[peerid]; ok {
 			delete(sess.publishers, peerid)
 		}
-		peer, err := CreatePublishPeer(sessionid, peerid)
+		peer, err := CreatePublishPeer(sess, sessionid, peerid)
 		if err != nil {
 			fmt.Println("publish to create peer failed", err)
 			return
 		}
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
-		sess.publishers[peerid] = *peer
+		sess.publishers[peerid] = peer
 
 		msg, err := json.Marshal(map[string]interface{}{
 			"type":      "publish",
@@ -81,25 +83,25 @@ func (sess *session) HandleMessage(j jsonparser) {
 			sdp = sess.publishers[peerid].peerConnection.CurrentLocalDescription()
 		}
 		sess.submux.Lock()
-		if _, ok := sess.subscribers[peerid]; ok {
-			delete(sess.subscribers, peerid)
+		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
+			delete(sess.subscribers, sessionid+srcsessionid+peerid)
 		}
 		sess.submux.Unlock()
-		peer, err := CreateSubscribePeer(sessionid, srcsessionid, peerid, sdp)
+		peer, err := CreateSubscribePeer(sess, sessionid, srcsessionid, peerid, sdp)
 		if err != nil {
 			fmt.Println("sub to create peer failed")
 			return
 		}
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
 		sess.submux.Lock()
-		sess.subscribers[peerid] = *peer
+		sess.subscribers[sessionid+srcsessionid+peerid] = peer
 		sess.submux.Unlock()
 		peer.HandleMessage(j)
 	} else if command == "stopsub" {
 		sess.submux.Lock()
 		defer sess.submux.Unlock()
-		if _, ok := sess.subscribers[peerid]; ok {
-			delete(sess.subscribers, peerid)
+		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
+			delete(sess.subscribers, sessionid+srcsessionid+peerid)
 		}
 	} else if command == "offer" {
 		if _, ok := sess.publishers[peerid]; ok {
@@ -111,8 +113,8 @@ func (sess *session) HandleMessage(j jsonparser) {
 	} else if command == "answer" {
 		sess.submux.RLock()
 		defer sess.submux.RUnlock()
-		if _, ok := sess.subscribers[peerid]; ok {
-			peer := sess.subscribers[peerid]
+		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
+			peer := sess.subscribers[sessionid+srcsessionid+peerid]
 			peer.HandleMessage(j)
 		} else {
 			fmt.Println("not subscribe yet:")
@@ -121,14 +123,37 @@ func (sess *session) HandleMessage(j jsonparser) {
 		if _, ok := sess.publishers[peerid]; ok {
 			peer := sess.publishers[peerid]
 			peer.HandleMessage(j)
-		} else if _, ok := sess.subscribers[peerid]; ok {
-			peer := sess.subscribers[peerid]
+		} else if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
+			peer := sess.subscribers[sessionid+srcsessionid+peerid]
 			peer.HandleMessage(j)
 		} else {
 			fmt.Println("not publish/subscribe yet")
 		}
 	} else {
 		fmt.Println("session unsupport msg type:", command)
+	}
+}
+
+func (sess *session) hasPublisher() (ret bool, sid, pid string) {
+	if _, ok := sess.publishers["camera"]; ok {
+		peer := sess.publishers["camera"]
+		if ret := peer.IsReady(); ret {
+			return true, sess.sessionid, "camera"
+		}
+	}
+	return false, "", ""
+}
+
+func (sess *session) OnIceReady(role int, sid, ssid, pid string) {
+	if role == 1 {
+		if _, ok := sess.publishers[pid]; ok {
+			sess.parent.OnPublisherReady(sid, pid)
+			return
+		}
+	}
+
+	if role == 2 {
+		// do nothing
 	}
 }
 

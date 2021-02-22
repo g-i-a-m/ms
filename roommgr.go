@@ -7,14 +7,14 @@ import "fmt"
 type jsonparser map[string]interface{}
 
 type roommgr struct {
-	rooms                map[string]room
+	rooms                map[string]*room
 	onSendMessageHandler func(topic, msg string)
 }
 
 // CreateRoomMgr is create a room manager object
 func CreateRoomMgr() *roommgr {
 	return &roommgr{
-		rooms: make(map[string]room),
+		rooms: make(map[string]*room),
 	}
 }
 
@@ -30,14 +30,15 @@ func (rm *roommgr) HandleMessage(msg []byte) {
 	command := GetValue(m, "type")
 	roomid := GetValue(m, "roomid")
 	if command == "login" {
-		if _, ok := rm.rooms[roomid]; ok {
-			delete(rm.rooms, roomid)
+		_, ok := rm.rooms[roomid]
+		if !ok {
+			r := CreateRoom(roomid)
+			r.SetSendMessageHandler(rm.onSendMessageHandler)
+			rm.rooms[roomid] = r
 		}
 
-		room := CreateRoom(roomid)
-		room.SetSendMessageHandler(rm.onSendMessageHandler)
-		rm.rooms[roomid] = *room
-		room.HandleMessage(m)
+		r, ok := rm.rooms[roomid]
+		r.HandleMessage(m)
 	} else if command == "heartbeat" ||
 		command == "logout" ||
 		command == "publish" ||

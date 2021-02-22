@@ -9,7 +9,7 @@ import (
 
 type room struct {
 	roomid               string
-	sessions             map[string]session
+	sessions             map[string]*session
 	onSendMessageHandler func(topic, msg string)
 }
 
@@ -17,7 +17,7 @@ type room struct {
 func CreateRoom(id string) *room {
 	return &room{
 		roomid:   id,
-		sessions: make(map[string]session),
+		sessions: make(map[string]*session),
 	}
 }
 
@@ -33,9 +33,9 @@ func (r *room) HandleMessage(j jsonparser) {
 		if _, ok := r.sessions[sessionid]; ok {
 			delete(r.sessions, sessionid)
 		}
-		sess := CreateSession(sessionid)
+		sess := CreateSession(r, sessionid)
 		sess.SetSendMessageHandler(r.onSendMessageHandler)
-		r.sessions[sessionid] = *sess
+		r.sessions[sessionid] = sess
 
 		msg, err := json.Marshal(map[string]interface{}{
 			"type":      "login",
@@ -46,6 +46,21 @@ func (r *room) HandleMessage(j jsonparser) {
 			fmt.Println("generate json error:", err)
 		}
 		r.onSendMessageHandler(sessionid, string(msg))
+
+		for _, value := range r.sessions {
+			if ret, sid, pid := value.hasPublisher(); ret {
+				msg, err := json.Marshal(map[string]interface{}{
+					"type":      "pub",
+					"roomid":    r.roomid,
+					"sessionid": sid,
+					"peerid":    pid,
+				})
+				if err != nil {
+					fmt.Println("generate json error:", err)
+				}
+				r.onSendMessageHandler(sessionid, string(msg))
+			}
+		}
 	} else if command == "heartbeat" {
 		if _, ok := r.sessions[sessionid]; ok {
 			sess := r.sessions[sessionid]
@@ -90,5 +105,20 @@ func (r *room) HandleMessage(j jsonparser) {
 		}
 	} else {
 		fmt.Println("room unsupport msg type:", command)
+	}
+}
+
+func (r *room) OnPublisherReady(sid, pid string) {
+	for _, value := range r.sessions {
+		msg, err := json.Marshal(map[string]interface{}{
+			"type":      "pub",
+			"roomid":    r.roomid,
+			"sessionid": sid,
+			"peerid":    pid,
+		})
+		if err != nil {
+			fmt.Println("generate json error:", err)
+		}
+		r.onSendMessageHandler(value.sessionid, string(msg))
 	}
 }

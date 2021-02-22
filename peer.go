@@ -26,10 +26,11 @@ type peer struct {
 	parent               *session
 	setedRemoteDesc      bool
 	candidateCaches      list.List
+	isReady              bool
 }
 
 // CreatePublishPeer to create a object for publish peer
-func CreatePublishPeer(sid, pid string) (*peer, error) {
+func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 	p := peer{
 		sessionid:       sid,
 		srcSessionid:    "",
@@ -42,9 +43,10 @@ func CreatePublishPeer(sid, pid string) (*peer, error) {
 		audioSender:     nil,
 		dataChannel:     nil,
 		publishersdp:    nil,
-		parent:          nil,
+		parent:          s,
 		setedRemoteDesc: false,
 		candidateCaches: *list.New(),
+		isReady:         false,
 	}
 	var err error
 	p.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
@@ -103,13 +105,17 @@ func CreatePublishPeer(sid, pid string) (*peer, error) {
 
 	p.peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		fmt.Printf("Connection State has changed: %s\n", connectionState.String())
+		if connectionState == webrtc.ICEConnectionStateConnected {
+			p.isReady = true
+			p.parent.OnIceReady(p.role, p.sessionid, p.srcSessionid, p.peerid)
+		}
 	})
 
 	return &p, nil
 }
 
 // CreateSubscribePeer to create a object for subscribe peer
-func CreateSubscribePeer(sid, ssid, pid string, sdp *webrtc.SessionDescription) (*peer, error) {
+func CreateSubscribePeer(s *session, sid, ssid, pid string, sdp *webrtc.SessionDescription) (*peer, error) {
 	p := peer{
 		sessionid:       sid,
 		srcSessionid:    ssid,
@@ -122,9 +128,10 @@ func CreateSubscribePeer(sid, ssid, pid string, sdp *webrtc.SessionDescription) 
 		audioSender:     nil,
 		dataChannel:     nil,
 		publishersdp:    sdp,
-		parent:          nil,
+		parent:          s,
 		setedRemoteDesc: false,
 		candidateCaches: *list.New(),
+		isReady:         false,
 	}
 	var err error
 	p.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
@@ -165,6 +172,10 @@ func CreateSubscribePeer(sid, ssid, pid string, sdp *webrtc.SessionDescription) 
 
 	p.peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		fmt.Printf("Connection State has changed: %s\n", connectionState.String())
+		if connectionState == webrtc.ICEConnectionStateConnected {
+			p.isReady = true
+			p.parent.OnIceReady(p.role, p.sessionid, p.srcSessionid, p.peerid)
+		}
 	})
 	return &p, nil
 }
@@ -332,6 +343,10 @@ func (p *peer) SetCachedCandidates() {
 			panic(err)
 		}
 	}
+}
+
+func (p *peer) IsReady() bool {
+	return p.isReady
 }
 
 func (p *peer) deliverVideoData(buff []byte) {
