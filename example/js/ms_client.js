@@ -234,7 +234,7 @@ async function mqttEventCallback(event) {
     //  TODO:do something
   } else if (event.type=='join_succeed') {
     joined_room_ = true;
-    window.document.getElementById('clientid').value = sessionid_;
+    window.document.getElementById('clientid').textContent = sessionid_;
   } else if (event.type=='join_failed') {
     joined_room_ = false;
   } else if (event.type=='pub') {
