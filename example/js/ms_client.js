@@ -88,7 +88,7 @@ mqtt_init(clientid_, mqttEventCallback);
 //  join the room of media server
 async function join_room() {
   if (mqtt_connected_) {
-    join2ms();
+    join2ms(window.document.getElementById('edit-nickname').value,window.document.getElementById('edit-roomid').value);
   } else {
     console.log('not connect to mqtt, please try join room later...');
   }
@@ -234,6 +234,7 @@ async function mqttEventCallback(event) {
     //  TODO:do something
   } else if (event.type=='join_succeed') {
     joined_room_ = true;
+    window.document.getElementById('clientid').value = sessionid_;
   } else if (event.type=='join_failed') {
     joined_room_ = false;
   } else if (event.type=='pub') {
@@ -293,9 +294,9 @@ async function startPublishOffer(msg, peerid) {
       //  peerOpt = {sdpSemantics: 'plan-b'};
       peerOpt = {
         iceServers: [{
-            urls: "turn:node.offcncloud.com:9900",
-            username: "ctf",
-            credential: "ctf123"
+            urls: window.document.getElementById('edit-stunurl').value,// "turn:node.offcncloud.com:9900",
+            username: window.document.getElementById('edit-stun-userid').value,// "ctf",
+            credential: window.document.getElementById('edit-stun-pwd').value,// "ctf123"
         }],
         iceTransportPolicy: "all",
         sdpSemantics: 'unified-plan'
@@ -317,9 +318,9 @@ async function startPublishOffer(msg, peerid) {
       stream = await navigator.mediaDevices.getUserMedia(media_option);// {audio: true, video: true}
       peerOpt = {
         iceServers: [{
-            urls: "turn:node.offcncloud.com:9900",
-            username: "ctf",
-            credential: "ctf123"
+          urls: window.document.getElementById('edit-stunurl').value,// "turn:node.offcncloud.com:9900",
+          username: window.document.getElementById('edit-stun-userid').value,// "ctf",
+          credential: window.document.getElementById('edit-stun-pwd').value,// "ctf123"
         }],
         iceTransportPolicy: "all",
         sdpSemantics: 'unified-plan'

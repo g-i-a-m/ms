@@ -63,7 +63,7 @@ func (conn *mqttonnection) Init() {
 		panic(token.Error())
 	}
 
-	if token := conn.client.Subscribe("Catherine", 0, nil); token.Wait() && token.Error() != nil {
+	if token := conn.client.Subscribe("pion-MediaServer", 0, nil); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 }

@@ -9,9 +9,9 @@ let sessionid_;
 let keepalive_timer_id_;
 let request_timer_id_;
 let mqtt_client;
-const nickname_ = "二狗子";// window.localStorage.getItem('nickname_');
-const roomid_ = "Allison";// window.localStorage.getItem('roomid');
-const mqtt_topic_ = "Catherine";// window.localStorage.getItem('mqtt_topic');
+let nickname_ ;
+let roomid_;
+const mqtt_topic_ = "pion-MediaServer";// window.localStorage.getItem('mqtt_topic');
 
 function mqtt_init(clientid, callback) {
   sessionid_ = clientid;
@@ -74,7 +74,9 @@ function generateUUID() {
 }
 
 //  regist to media server
-async function join2ms() {
+async function join2ms(nickname, roomid) {
+  nickname_ = nickname;
+  roomid_ = roomid;
   console.log('start join room...');
   const browserType = getBrowserType();
   const request={
