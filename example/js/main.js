@@ -18,6 +18,10 @@ const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const docVideo = document.getElementById('docVideo');
 
+const audio_input_devices = document.getElementById('audio_input_devices');
+const video_capture_devices = document.getElementById('video_capture_devices');
+const audio_output_devices = document.getElementById('audio_output_devices');
+
 joinButton.addEventListener('click', join_room);
 
 pushButton.addEventListener('click', e => publish_local_stream('camera', localVideo));
@@ -49,8 +53,8 @@ device_discovery();
 const audio_input_map_ = new Map();
 const video_input_map_ = new Map();
 const audio_output_map_ = new Map();
-let audio_default_input = '';
-let audio_default_output = '';
+let default_audio_input_groupid = '';
+let default_audio_output_groupid = '';
 async function webrtc_event_monitor(event) {
   if (event.id == 'device') {
     console.log(event.info.deviceId+'    '+event.info.groupId+'    '+event.info.kind+'    '+event.info.label);
@@ -61,31 +65,32 @@ async function webrtc_event_monitor(event) {
     };
     if (event.info.kind=='audioinput') {
       if (event.info.deviceId=='default' || event.info.deviceId=='communications') {
-        if (audio_default_input=='') {
-          audio_default_input = event.info.groupId;
-          set_audio_input_device(event.info.deviceId);
+        if (default_audio_input_groupid=='') {
+          default_audio_input_groupid = event.info.groupId;
         }
       } else {
-        audio_input_map_.set(event.info.groupId, info);
+        audio_input_map_.set(event.info.deviceId, info);
+        var isSelect = (default_audio_input_groupid==event.info.groupId);
+        audio_input_devices.add(new Option(event.info.label,event.info.deviceId,isSelect));
       }
     } else if (event.info.kind=='videoinput') {
-      video_input_map_.set(event.info.groupId, info);
-      if (event.info.label.search('Logitech') != -1) {
-        set_video_input_device(event.info.deviceId);
-      }
+      video_input_map_.set(event.info.deviceId, info);
+      // var isSelect = (event.info.label.search('Logitech') != -1);
+      video_capture_devices.add(new Option(event.info.label,event.info.deviceId));
     } else if (event.info.kind=='audiooutput') {
       if (event.info.deviceId=='default' || event.info.deviceId=='communications') {
-        if (audio_default_output=='') {
-          audio_default_output = event.info.groupId;
-          set_audio_output_device(event.info.deviceId);
+        if (default_audio_output_groupid=='') {
+          default_audio_output_groupid = event.info.groupId;
         }
       } else {
-        audio_output_map_.set(event.info.groupId, info);
+        audio_output_map_.set(event.info.deviceId, info);
+        var isSelect = (default_audio_output_groupid==event.info.groupId);
+        audio_output_devices.add(new Option(event.info.label,event.info.deviceId,isSelect));
       }
     }
   } else if (event.id == 'device-change') {
-    audio_default_input = '';
-    audio_default_output = '';
+    default_audio_input_groupid = '';
+    default_audio_output_groupid = '';
     audio_input_map_.clear();
     video_input_map_.clear();
     audio_output_map_.clear();

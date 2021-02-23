@@ -5,9 +5,9 @@
 // mqtt_moudle.setAttribute('src', 'js/mqttprocesser.js');
 // document.body.appendChild(mqtt_moudle);
 
-let audio_input_device_;
-let video_input_device_;
-let audio_output_device_;
+const audio_input_select = document.getElementById('audio_input_devices');
+const video_capture_select = document.getElementById('video_capture_devices');
+
 let mqtt_connected_ = false; //  mqtt connect status
 let joined_room_ = false; //  join room status
 const usermap_ = new Map(); //  users set
@@ -67,18 +67,6 @@ function deviceChange(e) {
     info: ''
   };
   usercallback(event);
-}
-
-function set_audio_input_device(devid) {
-  audio_input_device_ = devid;
-}
-
-function set_video_input_device(devid) {
-  video_input_device_ = devid;
-}
-
-function set_audio_output_device(devid) {
-  audio_output_device_ = devid;
 }
 
 clientid_ = generateUUID();
@@ -286,7 +274,6 @@ function getScreenShareConstraints() {
 async function startPublishOffer(msg, peerid) {
   let stream;
   let peerOpt;
-  
   try {
     if (peerid=='window') {
       const opt = getScreenShareConstraints();
@@ -306,13 +293,13 @@ async function startPublishOffer(msg, peerid) {
         audio: {
           noiseSuppression: true,
           echoCancellation: true,
-          deviceId: audio_input_device_
+          deviceId: audio_input_select.options[audio_input_select.selectedIndex].value
         },
         video: {
           width: 640,
           height: 480,
           frameRate: 15,
-          deviceId: video_input_device_
+          deviceId: video_capture_select.options[video_capture_select.selectedIndex].value
         }
       };
       stream = await navigator.mediaDevices.getUserMedia(media_option);// {audio: true, video: true}
