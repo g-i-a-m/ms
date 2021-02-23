@@ -23,9 +23,10 @@ var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
-	fmt.Printf("Connect lost: %v", err)
+	fmt.Println("mqtt connect lost: ", err)
 }
 
+//CreateMqtt is
 func CreateMqtt() *mqttonnection {
 	return &mqttonnection{}
 }

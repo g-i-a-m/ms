@@ -351,7 +351,7 @@ async function startPublishOffer(msg, peerid) {
         return;
     }
     console.log('RTCPeerConnection callback candidate:', event.candidate);
-    candidate(event.candidate,peerid)
+    candidate(peerid,event.candidate)
   };
 
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
@@ -418,7 +418,7 @@ function subscribe(userid, peerid, videolable) {
         return;
     }
     console.log('RTCPeerConnection callback candidate:', event.candidate);
-    candidate(event.candidate,peerid)
+    sub_candidate(userid,peerid,event.candidate)
   };
 
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
@@ -431,7 +431,7 @@ async function subOfferHandler(msg) {
     sdp: msg.sdp,
     type: 'offer'
   };
-  const key = msg.fid+'_'+msg.peerid;
+  const key = msg.srcsessionid+'_'+msg.peerid;
   const peer = subscribe_map_.get(key).peer_conn;
   peer.setRemoteDescription(offer_sdp);
   stopPullButton.disabled = false;
@@ -442,7 +442,7 @@ async function subOfferHandler(msg) {
     };
     const answersdp = await peer.createAnswer(answerOptions);
     peer.setLocalDescription(answersdp);
-    answer(clientid_, msg.fid, msg.peerid, answersdp.sdp);
+    answer(msg.srcsessionid, msg.peerid, answersdp.sdp);
   } catch (e) {
     console.log(`Failed to create sdp: ${e.toString()}`);
   }

@@ -83,7 +83,7 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 
 	p.peerConnection.OnICECandidate(func(candi *webrtc.ICECandidate) {
 		if candi == nil {
-			return // must be ICE Gatherer completed
+			return // must be publish ICE Gatherer completed
 		}
 		c := candi.ToJSON()
 		jsonBytes, err := json.Marshal(c)
@@ -156,13 +156,22 @@ func CreateSubscribePeer(s *session, sid, ssid, pid string, sdp *webrtc.SessionD
 		fmt.Println("ICE Gatherer state change:", state.String())
 	})
 
-	p.peerConnection.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		fmt.Printf("Got a local candidate: %s\n", candidate.String())
+	p.peerConnection.OnICECandidate(func(candi *webrtc.ICECandidate) {
+		if candi == nil {
+			return // must be subscribe ICE Gatherer completed
+		}
+		fmt.Printf("Got a local candidate: %s\n", candi.String())
+		c := candi.ToJSON()
+		jsonBytes, err := json.Marshal(c)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("Got a local candidate: %s\n", jsonBytes)
 		msg, err := json.Marshal(map[string]interface{}{
 			"type":      "candidate",
 			"sessionid": p.sessionid,
 			"peerid":    p.peerid,
-			"candidate": candidate.String(),
+			"candidate": fmt.Sprintf("%s", jsonBytes),
 		})
 		if err != nil {
 			fmt.Println("generate json error:", err)
@@ -209,7 +218,6 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 		panic(err)
 	}
 	for _, media := range sdp.MediaDescriptions {
-		fmt.Print(media, "\t")
 		if media.MediaName.Media == "video" {
 			// Create the video track
 			p.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8}, "video", "pion-v")
@@ -238,7 +246,12 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 		}
 	}
 
-	if err := p.peerConnection.SetLocalDescription(*p.publishersdp); err != nil {
+	// Create an offer to send to the other process
+	offer, err := p.peerConnection.CreateOffer(nil)
+	if err != nil {
+		panic(err)
+	}
+	if err := p.peerConnection.SetLocalDescription(offer); err != nil {
 		panic(err)
 	}
 
@@ -248,8 +261,7 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 		"sessionid":    sessionid,
 		"srcsessionid": srcsessionid,
 		"peerid":       peerid,
-		"sdp":          *p.publishersdp,
-		"code":         0,
+		"sdp":          offer.SDP,
 	})
 	if err != nil {
 		fmt.Println("generate json error:", err)
@@ -309,8 +321,14 @@ func (p *peer) HandleRemoteAnswer(j jsonparser) {
 	strsdp := GetValue(j, "sdp")
 
 	// Generate the answer sdp
+	mapSdp := map[string]interface{}{
+		"type": "answer",
+		"sdp":  strsdp,
+	}
 	answer := webrtc.SessionDescription{}
-	if err := json.Unmarshal([]byte(strsdp), &answer); err != nil {
+
+	strJSON, err := json.Marshal(mapSdp)
+	if err = json.Unmarshal(strJSON, &answer); err != nil {
 		panic(err)
 	}
 

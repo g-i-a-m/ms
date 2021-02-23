@@ -146,12 +146,13 @@ async function offer(sid, sdp) {
 }
 
 //  answer for subscribe stream
-async function answer(fid, tid, sid, sdp) {
+async function answer(ssid, pid, sdp) {
   const request={
     type: 'answer',
-    sessionid: sessionid_,
     roomid: roomid_,
-    peerid: sid,
+    sessionid: sessionid_,
+    srcsessionid: ssid,
+    peerid: pid,
     sdp: sdp
   };
   const jsonText=JSON.stringify(request);
@@ -160,12 +161,27 @@ async function answer(fid, tid, sid, sdp) {
 }
 
 //  answer for subscribe stream
-async function candidate(candi,peerid) {
+async function candidate(pid,candi) {
   const request={
     type: 'candidate',
-    sessionid: sessionid_,
     roomid: roomid_,
-    peerid: peerid,
+    sessionid: sessionid_,
+    peerid: pid,
+    candidate: candi,
+  };
+  const jsonText=JSON.stringify(request);
+  console.log('send msg:%s %s', mqtt_topic_, jsonText);
+  mqtt_client.publish(mqtt_topic_, jsonText);
+}
+
+//  answer for subscribe stream
+async function sub_candidate(ssid,pid,candi) {
+  const request={
+    type: 'candidate',
+    roomid: roomid_,
+    sessionid: sessionid_,
+    srcsessionid: ssid,
+    peerid: pid,
     candidate: candi,
   };
   const jsonText=JSON.stringify(request);
