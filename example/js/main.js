@@ -57,7 +57,7 @@ let default_audio_input_groupid = '';
 let default_audio_output_groupid = '';
 async function webrtc_event_monitor(event) {
   if (event.id == 'device') {
-    console.log(event.info.deviceId+'    '+event.info.groupId+'    '+event.info.kind+'    '+event.info.label);
+    //console.log(event.info.deviceId+'    '+event.info.groupId+'    '+event.info.kind+'    '+event.info.label);
     const info = {
       devid: event.info.deviceId,
       groupid: event.info.groupId,
