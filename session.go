@@ -4,18 +4,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v3"
 )
 
 type session struct {
-	pubmux               sync.RWMutex
-	submux               sync.RWMutex
+	pubsmux              sync.RWMutex
+	subsmux              sync.RWMutex
 	sessionid            string
 	publishers           map[string]*peer
 	subscribers          map[string]*peer
 	onSendMessageHandler func(topic, msg string)
 	parent               *room
+	alivetime            int64
 }
 
 // CreateSession is create a session object
@@ -25,6 +27,7 @@ func CreateSession(r *room, id string) *session {
 		publishers:  make(map[string]*peer),
 		subscribers: make(map[string]*peer),
 		parent:      r,
+		alivetime:   time.Now().Unix(),
 	}
 }
 
@@ -37,9 +40,9 @@ func (sess *session) HandleMessage(j jsonparser) {
 	sessionid := GetValue(j, "sessionid")
 	srcsessionid := GetValue(j, "srcsessionid")
 	peerid := GetValue(j, "peerid")
-	// srcpeerid := GetValue(j, "srcpeerid")
-	if command == "heartbeat" {
 
+	if command == "heartbeat" {
+		sess.alivetime = time.Now().Unix()
 	} else if command == "publish" {
 		if _, ok := sess.publishers[peerid]; ok {
 			delete(sess.publishers, peerid)
@@ -82,28 +85,30 @@ func (sess *session) HandleMessage(j jsonparser) {
 		if _, ok := sess.publishers[peerid]; ok {
 			sdp = sess.publishers[peerid].peerConnection.CurrentLocalDescription()
 		}
-		sess.submux.Lock()
+		sess.subsmux.Lock()
 		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
 			delete(sess.subscribers, sessionid+srcsessionid+peerid)
 		}
-		sess.submux.Unlock()
+		sess.subsmux.Unlock()
 		peer, err := CreateSubscribePeer(sess, sessionid, srcsessionid, peerid, sdp)
 		if err != nil {
 			fmt.Println("sub to create peer failed")
 			return
 		}
 		peer.SetSendMessageHandler(sess.onSendMessageHandler)
-		sess.submux.Lock()
+		sess.subsmux.Lock()
 		sess.subscribers[sessionid+srcsessionid+peerid] = peer
-		sess.submux.Unlock()
+		sess.subsmux.Unlock()
 		peer.HandleMessage(j)
 	} else if command == "stopsub" {
-		sess.submux.Lock()
-		defer sess.submux.Unlock()
+		sess.subsmux.Lock()
+		defer sess.subsmux.Unlock()
 		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
 			delete(sess.subscribers, sessionid+srcsessionid+peerid)
 		}
 	} else if command == "offer" {
+		sess.subsmux.RLock()
+		defer sess.subsmux.RUnlock()
 		if _, ok := sess.publishers[peerid]; ok {
 			peer := sess.publishers[peerid]
 			peer.HandleMessage(j)
@@ -111,8 +116,8 @@ func (sess *session) HandleMessage(j jsonparser) {
 			fmt.Println("not publish yet:")
 		}
 	} else if command == "answer" {
-		sess.submux.RLock()
-		defer sess.submux.RUnlock()
+		sess.subsmux.RLock()
+		defer sess.subsmux.RUnlock()
 		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
 			peer := sess.subscribers[sessionid+srcsessionid+peerid]
 			peer.HandleMessage(j)
@@ -135,6 +140,8 @@ func (sess *session) HandleMessage(j jsonparser) {
 }
 
 func (sess *session) hasPublisher() (ret bool, sid, pid string) {
+	sess.pubsmux.RLock()
+	defer sess.pubsmux.RUnlock()
 	if _, ok := sess.publishers["camera"]; ok {
 		peer := sess.publishers["camera"]
 		if ret := peer.IsReady(); ret {
@@ -146,6 +153,8 @@ func (sess *session) hasPublisher() (ret bool, sid, pid string) {
 
 func (sess *session) OnIceReady(role int, sid, ssid, pid string) {
 	if role == 1 {
+		sess.pubsmux.RLock()
+		defer sess.pubsmux.RUnlock()
 		if _, ok := sess.publishers[pid]; ok {
 			sess.parent.OnPublisherReady(sid, pid)
 			return
@@ -157,26 +166,33 @@ func (sess *session) OnIceReady(role int, sid, ssid, pid string) {
 	}
 }
 
-func (sess *session) OnReceivedVideoData(buff []byte) {
-	sess.submux.RLock()
-	defer sess.submux.RUnlock()
+func (sess *session) OnReceivedAudioData(buff []byte, len int) {
+	sess.subsmux.RLock()
+	defer sess.subsmux.RUnlock()
 	for _, value := range sess.subscribers {
-		value.deliverVideoData(buff)
+		value.deliverAudioData(buff, len)
 	}
 }
 
-func (sess *session) OnReceivedAudioData(buff []byte) {
-	sess.submux.RLock()
-	defer sess.submux.RUnlock()
+func (sess *session) OnReceivedVideoData(buff []byte, len int) {
+	sess.subsmux.RLock()
+	defer sess.subsmux.RUnlock()
 	for _, value := range sess.subscribers {
-		value.deliverAudioData(buff)
+		value.deliverVideoData(buff, len)
 	}
 }
 
-func (sess *session) OnReceivedAppData(buff []byte) {
-	sess.submux.RLock()
-	defer sess.submux.RUnlock()
+func (sess *session) OnReceivedAppData(buff []byte, len int) {
+	sess.subsmux.RLock()
+	defer sess.subsmux.RUnlock()
 	for _, value := range sess.subscribers {
-		value.deliverAppData(buff)
+		value.deliverAppData(buff, len)
 	}
+}
+
+func (sess *session) IsStillAlive() bool {
+	if (time.Now().Unix() - sess.alivetime) > 60 {
+		return false
+	}
+	return true
 }

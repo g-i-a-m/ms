@@ -2,12 +2,17 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+	"time"
+)
 
 type jsonparser map[string]interface{}
 
 type roommgr struct {
 	rooms                map[string]*room
+	roomsLock            sync.RWMutex
 	onSendMessageHandler func(topic, msg string)
 }
 
@@ -20,6 +25,17 @@ func CreateRoomMgr() *roommgr {
 
 func (rm *roommgr) SetSendMessageHandler(f func(topic, msg string)) {
 	rm.onSendMessageHandler = f
+
+	go func() {
+		ticker := time.NewTicker(30)
+		for range ticker.C {
+			rm.roomsLock.RLock()
+			for _, r := range rm.rooms {
+				r.OnCheckKeepalive()
+			}
+			rm.roomsLock.RUnlock()
+		}
+	}()
 }
 
 func (rm *roommgr) HandleMessage(msg []byte) {
@@ -34,7 +50,9 @@ func (rm *roommgr) HandleMessage(msg []byte) {
 		if !ok {
 			r := CreateRoom(roomid)
 			r.SetSendMessageHandler(rm.onSendMessageHandler)
+			rm.roomsLock.Lock()
 			rm.rooms[roomid] = r
+			rm.roomsLock.Unlock()
 		}
 
 		r, ok := rm.rooms[roomid]

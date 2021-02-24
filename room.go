@@ -5,11 +5,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 )
 
 type room struct {
 	roomid               string
 	sessions             map[string]*session
+	sessionsLock         sync.RWMutex
 	onSendMessageHandler func(topic, msg string)
 }
 
@@ -35,7 +37,9 @@ func (r *room) HandleMessage(j jsonparser) {
 		}
 		sess := CreateSession(r, sessionid)
 		sess.SetSendMessageHandler(r.onSendMessageHandler)
+		r.sessionsLock.Lock()
 		r.sessions[sessionid] = sess
+		r.sessionsLock.Unlock()
 
 		msg, err := json.Marshal(map[string]interface{}{
 			"type":      "login",
@@ -121,4 +125,15 @@ func (r *room) OnPublisherReady(sid, pid string) {
 		}
 		r.onSendMessageHandler(value.sessionid, string(msg))
 	}
+}
+
+func (r *room) OnCheckKeepalive() {
+	// TODO have a problem, fix it later
+	r.sessionsLock.RLock()
+	for _, s := range r.sessions {
+		if ret := s.IsStillAlive(); !ret {
+			delete(r.sessions, s.sessionid)
+		}
+	}
+	r.sessionsLock.RUnlock()
 }
