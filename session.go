@@ -182,12 +182,26 @@ func (sess *session) OnReceivedVideoData(buff []byte, len int) {
 	}
 }
 
-func (sess *session) OnReceivedAppData(buff []byte, len int) {
-	sess.subsmux.RLock()
-	defer sess.subsmux.RUnlock()
-	for _, value := range sess.subscribers {
-		value.deliverAppData(buff, len)
+func (sess *session) OnReceivedAppData(fromSid, fromPid string, buff []byte, len int) {
+	sess.parent.OnReceivedAppData(fromSid, fromPid, buff, len)
+}
+
+func (sess *session) BroadcastAppData(fromSid, fromPid string, buff []byte, len int) {
+	sess.pubsmux.RLock()
+	for _, value := range sess.publishers {
+		if value.sessionid != fromSid || value.peerid != fromPid {
+			value.deliverAppData(buff, len)
+		}
 	}
+	sess.pubsmux.RUnlock()
+
+	sess.subsmux.RLock()
+	for _, value := range sess.subscribers {
+		if value.sessionid != fromSid || value.peerid != fromPid {
+			value.deliverAppData(buff, len)
+		}
+	}
+	sess.subsmux.RUnlock()
 }
 
 func (sess *session) IsStillAlive() bool {

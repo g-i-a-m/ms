@@ -137,3 +137,11 @@ func (r *room) OnCheckKeepalive() {
 	}
 	r.sessionsLock.RUnlock()
 }
+
+func (r *room) OnReceivedAppData(fromSid, fromPid string, buff []byte, len int) {
+	r.sessionsLock.RLock()
+	for _, s := range r.sessions {
+		s.BroadcastAppData(fromSid, fromPid, buff, len)
+	}
+	r.sessionsLock.RUnlock()
+}
