@@ -21,7 +21,14 @@ function textareaHandler(e) {
       document.getElementById("text-sendbuf").value = document.getElementById("text-sendbuf").value + '\n';
     } else {
       e.preventDefault();
-      // to send
+      
+      const key = clientid_+'_'+peerid_;
+      if (publish_map_.has(key)) {
+        publish_map_.get(key).data_channel.send(document.getElementById("text-sendbuf").value);
+      } else {
+        return;
+      }
+
       updateRecvBuffer("send", document.getElementById("text-sendbuf").value)
       document.getElementById("text-sendbuf").value = ""
     }
@@ -87,8 +94,8 @@ function deviceChange(e) {
   usercallback(event);
 }
 
-clientid_ = generateUUID();
-// clientid_ = 'mqttjs_' + Math.random().toString(16).substr(2, 8);
+clientid_ = generateUUID(); //'mqttjs_' + Math.random().toString(16).substr(2, 8);
+var peerid_; //for data channel search
 mqtt_init(clientid_, mqttEventCallback);
 
 //  join the room of media server
@@ -120,6 +127,7 @@ async function publish_local_stream(peerid, videolable) {
     const node={
       sid: peerid,
       peer_conn: null,
+      data_channel: null,
       video_wnd: videolable
     };
     publish_map_.set(clientid_+'_'+peerid, node);
@@ -292,6 +300,7 @@ function getScreenShareConstraints() {
 async function startPublishOffer(msg, peerid) {
   let stream;
   let peerOpt;
+  peerid_ = peerid;
   try {
     if (peerid=='window') {
       const opt = getScreenShareConstraints();
@@ -354,15 +363,21 @@ async function startPublishOffer(msg, peerid) {
     console.log(`Using audio device: ${audioTracks[0].label}`);
   }
   peer = new RTCPeerConnection(peerOpt);
-  const sem = peer.getConfiguration().sdpSemantics;
-  console.log('push peer semantics:'+sem);
+  var channel = peer.createDataChannel("datachannel");
+  channel.onopen = function () {
+    document.getElementById("text-sendbuf").disabled = false;
+  };
+  channel.onclose = function () {
+    document.getElementById("text-sendbuf").disabled = true;
+  };
+
   if (publish_map_.has(key)) {
     publish_map_.get(key).peer_conn = peer;
+    publish_map_.get(key).data_channel = channel;
   } else {
     return;
   }
 
-  console.log('Created publish peerconnection: %s', msg.fid+'_'+peerid);
   // 向对方发送nat candidate
   peer.onicecandidate = event => {
     if (!event.candidate) {
@@ -439,9 +454,25 @@ function subscribe(userid, peerid, videolable) {
     sub_candidate(userid,peerid,event.candidate)
   };
 
+  peer.ondatachannel = function (e) {
+    sub_data_channel = e.channel;
+    sub_data_channel.onmessage = handleRecvSubChannelMsg;
+    sub_data_channel.onopen = handleChannelStatusChange;
+    sub_data_channel.onclose = handleChannelStatusChange;
+  }
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
   peer.addEventListener('track', e => gotRemoteStream(userid, peerid, e));
   sub(userid, peerid);
+}
+
+function handleRecvSubChannelMsg(e) {
+  updateRecvBuffer("recv",e.data);
+}
+
+function handleChannelStatusChange(channel) {
+  if (channel) {
+
+  }
 }
 
 async function subOfferHandler(msg) {
