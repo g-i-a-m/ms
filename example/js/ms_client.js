@@ -15,6 +15,24 @@ const publish_map_ = new Map(); //  publish streams set
 const subscribe_map_ = new Map(); //  subscribe streams set
 let usercallback;
 
+function textareaHandler(e) {
+  if (e.keyCode == 13) {
+    if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) {
+      document.getElementById("text-sendbuf").value = document.getElementById("text-sendbuf").value + '\n';
+    } else {
+      e.preventDefault();
+      // to send
+      updateRecvBuffer("send", document.getElementById("text-sendbuf").value)
+      document.getElementById("text-sendbuf").value = ""
+    }
+  }
+}
+
+function updateRecvBuffer(type, data) {
+  var recvbuf = document.getElementById("text-recvbuf");
+  recvbuf.value = recvbuf.value + type + ":" + data + "\n";
+}
+
 Array.prototype.indexOf = function(val) {
   for (let i = 0; i < this.length; i++) {
     if (this[i] == val) {

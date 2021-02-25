@@ -29,14 +29,14 @@
 
 <header>
     <p style="margin-left:120px">
-        <span style="margin-left:40px">client id:</span><strong id="clientid"></strong>
-        <span style="margin-left:40px">nickname:</span><input type="text" placeholder="input nick name" value="Allison" id="edit-nickname"></input>
-        <span style="margin-left:40px">room id:</span><input type="text" placeholder="input room id" value="Catherine" id="edit-roomid"></input>
+        <span style="margin-left:40px">client id:</span><strong style="width:200px" id="clientid"></strong>
+        <span style="margin-left:40px">nickname:</span><input style="width: 80px" type="text" placeholder="input nick name" value="Allison" id="edit-nickname"></input>
+        <span style="margin-left:40px">room id:</span><input style="width: 80px" type="text" placeholder="input room id" value="Catherine" id="edit-roomid"></input>
     </p>
     <p style="margin-left:120px">
-        <span style="margin-left:40px; width:300px;">stun url:</span><input type="text" placeholder="input stun url" value="turn:node.offcncloud.com:9900" id="edit-stunurl"></input>
-        <span style="margin-left:40px">stun user:</span><input type="text" placeholder="input user id" value="ctf" id="edit-stun-userid"></input>
-        <span style="margin-left:40px">stun password:</span><input type="text" placeholder="input user password" value="ctf123" id="edit-stun-pwd"></input>
+        <span style="margin-left:40px">stun url:</span><input style="width:200px;" type="text" placeholder="input stun url" value="turn:node.offcncloud.com:9900" id="edit-stunurl"></input>
+        <span style="margin-left:40px">stun user:</span><input style="width: 60px" type="text" placeholder="input user id" value="ctf" id="edit-stun-userid"></input>
+        <span style="margin-left:40px">stun password:</span><input style="width: 60px" type="text" placeholder="input user password" value="ctf123" id="edit-stun-pwd"></input>
     </p>
 </header>
 
@@ -61,19 +61,24 @@
     </div>
 
     <div class="box">
+        <span>data send buffer:</span><textarea id="text-sendbuf" cols="24" rows="5" 
+            placeholder="input data" onkeydown="textareaHandler(event)"></textarea>
+        <span style="margin-left:40px">data recv buffer:</span><textarea 
+            id="text-recvbuf" cols="24" rows="5" placeholder="receive buffer"readonly="readonly"></textarea>
+    </div>
+
+    <div class="box">
         <span>SDP Semantics:</span>
         <select id="sdpSemantics">
             <option selected value="">Default</option>
             <option value="unified-plan">Unified Plan</option>
             <option value="plan-b">Plan B</option>
         </select>
+        <span>Audio output devices:</span><select name="Audio output devices:" id="audio_output_devices"></select>
     </div>
     <div class="box">
         <span>Audio input devices:</span><select name="Audio input devices:" id="audio_input_devices"></select>
         <span>Video capture devices:</span><select name="Video capture devices:" id="video_capture_devices"></select>
-    </div>
-    <div class="box">
-        <span>Audio output devices:</span><select name="Audio output devices:" id="audio_output_devices"></select>
     </div>
 </div>
 
