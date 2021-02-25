@@ -299,6 +299,16 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 			if p.dataChannel, err = p.peerConnection.CreateDataChannel("whiteboard", nil); err != nil {
 				panic(err)
 			}
+
+			p.dataChannel.OnClose(func() {
+				fmt.Println("sub data channel has closed")
+			})
+			p.dataChannel.OnOpen(func() {
+				fmt.Println("sub data channel has opened")
+			})
+			p.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+				p.parent.OnReceivedAppData(p.sessionid, p.peerid, msg.Data, 0)
+			})
 		}
 	}
 

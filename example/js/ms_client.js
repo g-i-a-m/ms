@@ -22,14 +22,26 @@ function textareaHandler(e) {
     } else {
       e.preventDefault();
       
+      var isSend = false;
       const key = clientid_+'_'+peerid_;
       if (publish_map_.has(key)) {
         publish_map_.get(key).data_channel.send(document.getElementById("text-sendbuf").value);
-      } else {
-        return;
+        isSend = true;
       }
 
-      updateRecvBuffer("send", document.getElementById("text-sendbuf").value)
+      if (isSend == false) {
+        for (var x of subscribe_map_) {
+          if (x[1].sub_data_channel != null) {
+            x[1].sub_data_channel.send(document.getElementById("text-sendbuf").value);
+            isSend = true;
+            break;
+          }
+        }
+      }
+
+      if (isSend) {
+        updateRecvBuffer("send", document.getElementById("text-sendbuf").value)
+      }
       document.getElementById("text-sendbuf").value = ""
     }
   }
@@ -364,13 +376,9 @@ async function startPublishOffer(msg, peerid) {
   }
   peer = new RTCPeerConnection(peerOpt);
   var channel = peer.createDataChannel("datachannel");
-  channel.onopen = function () {
-    document.getElementById("text-sendbuf").disabled = false;
-  };
-  channel.onclose = function () {
-    document.getElementById("text-sendbuf").disabled = true;
-  };
-
+  channel.onopen = handleChannelStatusChange;
+  channel.onclose = handleChannelStatusChange;
+  channel.onmessage = handleRecvSubChannelMsg;
   if (publish_map_.has(key)) {
     publish_map_.get(key).peer_conn = peer;
     publish_map_.get(key).data_channel = channel;
@@ -432,7 +440,7 @@ function handleUnpub(msg) {
 }
 
 function subscribe(userid, peerid, videolable) {
-  if (publish_map_.has(userid+'_'+peerid)) {
+  if (subscribe_map_.has(userid+'_'+peerid)) {
     console.log(peerid+' stream has been subscribed and would be resubscribed now');
     stopPull(key, peerid);
   }
@@ -441,6 +449,7 @@ function subscribe(userid, peerid, videolable) {
   console.log('pull peer semantics:'+sem);
   const node={
     peer_conn: null,
+    sub_data_channel: null,
     video_wnd: videolable
   };
   node.peer_conn = peer;
@@ -455,10 +464,10 @@ function subscribe(userid, peerid, videolable) {
   };
 
   peer.ondatachannel = function (e) {
-    sub_data_channel = e.channel;
-    sub_data_channel.onmessage = handleRecvSubChannelMsg;
-    sub_data_channel.onopen = handleChannelStatusChange;
-    sub_data_channel.onclose = handleChannelStatusChange;
+    node.sub_data_channel = e.channel;
+    node.sub_data_channel.onmessage = handleRecvSubChannelMsg;
+    node.sub_data_channel.onopen = handleChannelStatusChange;
+    node.sub_data_channel.onclose = handleChannelStatusChange;
   }
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
   peer.addEventListener('track', e => gotRemoteStream(userid, peerid, e));
@@ -469,9 +478,11 @@ function handleRecvSubChannelMsg(e) {
   updateRecvBuffer("recv",e.data);
 }
 
-function handleChannelStatusChange(channel) {
-  if (channel) {
-
+function handleChannelStatusChange(e) {
+  if (e.type == "open") {
+    document.getElementById("text-sendbuf").disabled = false;
+  } else if (e.type == "close") {
+    document.getElementById("text-sendbuf").disabled = true;
   }
 }
 
