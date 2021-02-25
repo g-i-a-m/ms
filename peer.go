@@ -121,37 +121,17 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 			}()
 			return
 		}
-		if p.isApplicationSsrc(int(ssrc)) {
-			fmt.Printf("Got application remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
-			go func() {
-				ticker := time.NewTicker(1)
-				for range ticker.C {
-					if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remoteTrack.SSRC())}}); rtcpSendErr != nil {
-						fmt.Println(rtcpSendErr)
-					}
-				}
-			}()
-			go func() {
-				rtpBuf := make([]byte, 1500)
-				for {
-					i, _, readErr := remoteTrack.Read(rtpBuf)
-					if readErr != nil {
-						panic(readErr)
-					}
-					p.parent.OnReceivedAppData(rtpBuf, i)
-				}
-			}()
-			return
-		}
 		fmt.Printf("Got unknow remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
 	})
 
 	p.peerConnection.OnDataChannel(func(channel *webrtc.DataChannel) {
-		channel.OnOpen(func() {
-			fmt.Printf("Data channel '%s'-'%d' open.\n", channel.Label(), channel.ID())
-		})
+		p.dataChannel = channel
+		/* p.dataChannel.OnOpen(func() {
+			fmt.Printf("Data channel '%s'-'%d' opened\n", channel.Label(), channel.ID())
+			channel.Detach()
+		}) */
 
-		channel.OnMessage(func(msg webrtc.DataChannelMessage) {
+		p.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
 			p.parent.OnReceivedAppData(msg.Data, 0)
 		})
 	})
@@ -462,9 +442,9 @@ func (p *peer) deliverVideoData(buff []byte, len int) {
 
 func (p *peer) deliverAppData(buff []byte, len int) {
 	if p.dataChannel != nil {
-		sendErr := p.dataChannel.SendText(string(buff))
-		if sendErr != nil {
-			panic(sendErr)
+		err := p.dataChannel.SendText(string(buff))
+		if err != nil {
+			panic(err)
 		}
 	}
 }
@@ -480,15 +460,6 @@ func (p *peer) isAudioSsrc(s int) bool {
 
 func (p *peer) isVideoSsrc(s int) bool {
 	for e := p.videossrc.Front(); e != nil; e = e.Next() {
-		if e.Value.(int) == s {
-			return true
-		}
-	}
-	return false
-}
-
-func (p *peer) isApplicationSsrc(s int) bool {
-	for e := p.appssrc.Front(); e != nil; e = e.Next() {
 		if e.Value.(int) == s {
 			return true
 		}
