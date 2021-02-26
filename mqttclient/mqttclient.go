@@ -37,7 +37,7 @@ func (conn *mqttonnection) Init() {
 	mqtt.WARN = log.New(os.Stdout, "[WARN]  ", 0)
 	//mqtt.DEBUG = log.New(os.Stdout, "[DEBUG] ", 0)
 
-	var ip = "mqtt.ctf.com"
+	var ip = "test-mqq.offcncloud.com"
 	var port = 1883
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", ip, port))

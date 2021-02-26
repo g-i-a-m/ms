@@ -36,7 +36,7 @@ function mqtt_init(clientid, callback) {
     password: 'public',
     rejectUnauthorized: false
   };
-  const connectUrl = 'ws://127.0.0.1:8083/mqtt';
+  const connectUrl = 'wss://test-mqq.offcncloud.com:8084/mqtt';
   mqtt_client = mqtt.connect(connectUrl, options);
 
   // subscribe topic

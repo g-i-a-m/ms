@@ -80,7 +80,7 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 		if p.isAudioSsrc(int(ssrc)) {
 			fmt.Printf("Got audio remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
 			go func() {
-				ticker := time.NewTicker(1)
+				ticker := time.NewTicker(time.Second * 5)
 				for range ticker.C {
 					if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remoteTrack.SSRC())}}); rtcpSendErr != nil {
 						fmt.Println(rtcpSendErr)
@@ -102,7 +102,7 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 		if p.isVideoSsrc(int(ssrc)) {
 			fmt.Printf("Got video remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
 			go func() {
-				ticker := time.NewTicker(1)
+				ticker := time.NewTicker(time.Second * 5)
 				for range ticker.C {
 					if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remoteTrack.SSRC())}}); rtcpSendErr != nil {
 						fmt.Println(rtcpSendErr)
