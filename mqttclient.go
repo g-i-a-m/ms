@@ -1,6 +1,6 @@
 // +build !js
 
-package mqttclient
+package main
 
 import (
 	"fmt"
