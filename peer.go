@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
@@ -104,7 +103,7 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 		}
 		if p.isVideoSsrc(int(ssrc)) {
 			fmt.Printf("Got video remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
-			go func() {
+			/* go func() {
 				p.waitGroup.Add(1)
 				defer p.waitGroup.Done()
 				ticker := time.NewTicker(time.Second * 2)
@@ -118,7 +117,7 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 						}
 					}
 				}
-			}()
+			}() */
 			go func() {
 				p.waitGroup.Add(1)
 				defer p.waitGroup.Done()
@@ -475,6 +474,17 @@ func (p *peer) IsReady() bool {
 	return p.isReady
 }
 
+func (p *peer) SendFir() {
+	if p.role != 1 {
+		fmt.Println("illegal rtcp fir request")
+		return
+	}
+
+	if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(p.getVideoSsrc())}}); rtcpSendErr != nil {
+		fmt.Println(rtcpSendErr)
+	}
+}
+
 func (p *peer) deliverAudioData(buff []byte, len int) {
 	if p.audioSender != nil {
 		if _, err := p.audioTrack.Write(buff[:len]); err != nil && !errors.Is(err, io.ErrClosedPipe) {
@@ -516,6 +526,13 @@ func (p *peer) isVideoSsrc(s int) bool {
 		}
 	}
 	return false
+}
+
+func (p *peer) getVideoSsrc() (ssrc int) {
+	for e := p.videossrc.Front(); e != nil; e = e.Next() {
+		return e.Value.(int)
+	}
+	return
 }
 
 func (p *peer) setSsrcFromSDP(remoteSdp *webrtc.SessionDescription) error {

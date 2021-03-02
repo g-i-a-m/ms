@@ -173,7 +173,10 @@ func (sess *session) OnIceReady(role int, sid, ssid, pid string) {
 	}
 
 	if role == 2 {
-		// do nothing
+		if _, ok := sess.publishers[pid]; ok {
+			peer := sess.publishers[pid]
+			go peer.SendFir()
+		}
 	}
 }
 
