@@ -27,7 +27,7 @@ func (rm *roommgr) SetSendMessageHandler(f func(topic, msg string)) {
 	rm.onSendMessageHandler = f
 
 	go func() {
-		ticker := time.NewTicker(time.Second * 30)
+		ticker := time.NewTicker(time.Second * 20)
 		for range ticker.C {
 			rm.roomsLock.RLock()
 			for _, r := range rm.rooms {

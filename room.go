@@ -127,13 +127,62 @@ func (r *room) OnPublisherReady(sid, pid string) {
 	}
 }
 
-func (r *room) OnCheckKeepalive() {
-	// TODO have a problem, fix it later
-	r.sessionsLock.RLock()
-	for _, s := range r.sessions {
-		if ret := s.IsStillAlive(); !ret {
-			delete(r.sessions, s.sessionid)
+func (r *room) OnPublisherPeerDisconnected(sid, pid string) {
+	if _, ok := r.sessions[sid]; ok {
+		sess := r.sessions[sid]
+		sess.ReleasePublisher(sid, pid)
+	}
+
+	for _, value := range r.sessions {
+		msg, err := json.Marshal(map[string]interface{}{
+			"type":      "unpub",
+			"roomid":    r.roomid,
+			"sessionid": sid,
+			"peerid":    pid,
+		})
+		if err != nil {
+			fmt.Println("generate json error:", err)
 		}
+		r.onSendMessageHandler(value.sessionid, string(msg))
+	}
+}
+
+func (r *room) OnPublisherPeerFailed(sid, pid string) {
+
+}
+
+func (r *room) OnSubscriberPeerDisconnected(sid, ssid, pid string) {
+	if _, ok := r.sessions[ssid]; ok {
+		sess := r.sessions[ssid]
+		sess.ReleaseSubscriberPeer(sid, ssid, pid)
+	}
+}
+
+func (r *room) OnSubscriberPeerFailed(sid, ssid, pid string) {
+
+}
+
+func (r *room) OnCheckKeepalive() {
+	r.sessionsLock.RLock()
+	for _, sess := range r.sessions {
+		go sess.CheckKeepAlive()
+	}
+	r.sessionsLock.RUnlock()
+}
+
+func (r *room) HandleKeepaliveTimeout(sid string) {
+	r.sessionsLock.Lock()
+	if _, ok := r.sessions[sid]; ok {
+		sess := r.sessions[sid]
+		go sess.DoLeave()
+		delete(r.sessions, sess.sessionid)
+		fmt.Printf("client %s heartbeat timeout, kickout now\n", sid)
+	}
+	r.sessionsLock.Unlock()
+
+	r.sessionsLock.RLock()
+	for _, sess := range r.sessions {
+		go sess.HandleSubscriberLeaved(sid)
 	}
 	r.sessionsLock.RUnlock()
 }

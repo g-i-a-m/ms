@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -21,6 +23,7 @@ type peer struct {
 	srcSessionid         string
 	peerid               string
 	role                 int
+	peerMux              sync.RWMutex
 	peerConnection       *webrtc.PeerConnection
 	videoTrack           *webrtc.TrackLocalStaticRTP
 	videoSender          *webrtc.RTPSender
@@ -36,6 +39,8 @@ type peer struct {
 	audiossrc            *list.List
 	videossrc            *list.List
 	appssrc              *list.List
+	exitCh               chan int
+	waitGroup            *sync.WaitGroup
 }
 
 // CreatePublishPeer to create a object for publish peer
@@ -59,6 +64,8 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 		audiossrc:       list.New(),
 		videossrc:       list.New(),
 		appssrc:         list.New(),
+		exitCh:          make(chan int),
+		waitGroup:       &sync.WaitGroup{},
 	}
 	var err error
 	p.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
@@ -80,12 +87,16 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 		if p.isAudioSsrc(int(ssrc)) {
 			fmt.Printf("Got audio remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
 			go func() {
+				p.waitGroup.Add(1)
+				defer p.waitGroup.Done()
 				rtpBuf := make([]byte, 1500)
 				for {
 					i, _, readErr := remoteTrack.Read(rtpBuf)
-					if readErr != nil {
-						panic(readErr)
+
+					if readErr != nil && readErr == io.EOF {
+						runtime.Gosched()
 					}
+
 					p.parent.OnReceivedAudioData(rtpBuf, i)
 				}
 			}()
@@ -94,19 +105,28 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 		if p.isVideoSsrc(int(ssrc)) {
 			fmt.Printf("Got video remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
 			go func() {
+				p.waitGroup.Add(1)
+				defer p.waitGroup.Done()
 				ticker := time.NewTicker(time.Second * 2)
-				for range ticker.C {
-					if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remoteTrack.SSRC())}}); rtcpSendErr != nil {
-						fmt.Println(rtcpSendErr)
+				for {
+					select {
+					case <-p.exitCh:
+						return
+					case <-ticker.C:
+						if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remoteTrack.SSRC())}}); rtcpSendErr != nil {
+							fmt.Println(rtcpSendErr)
+						}
 					}
 				}
 			}()
 			go func() {
+				p.waitGroup.Add(1)
+				defer p.waitGroup.Done()
 				rtpBuf := make([]byte, 1500)
 				for {
 					i, _, readErr := remoteTrack.Read(rtpBuf)
-					if readErr != nil {
-						panic(readErr)
+					if readErr != nil && readErr == io.EOF {
+						return
 					}
 					p.parent.OnReceivedVideoData(rtpBuf, i)
 				}
@@ -159,6 +179,15 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 		if connectionState == webrtc.ICEConnectionStateConnected {
 			p.isReady = true
 			p.parent.OnIceReady(p.role, p.sessionid, p.srcSessionid, p.peerid)
+		} else if connectionState == webrtc.ICEConnectionStateDisconnected {
+			p.isReady = false
+			p.parent.OnIceDisconnected(p.role, p.sessionid, p.srcSessionid, p.peerid)
+		} else if connectionState == webrtc.ICEConnectionStateFailed {
+			p.isReady = false
+			p.parent.OnIceConnectionFailed(p.role, p.sessionid, p.srcSessionid, p.peerid)
+		} else if connectionState == webrtc.ICEConnectionStateClosed {
+			p.isReady = false
+			p.parent.OnIceConnectionClosed(p.role, p.sessionid, p.srcSessionid, p.peerid)
 		}
 	})
 
@@ -183,6 +212,8 @@ func CreateSubscribePeer(s *session, sid, ssid, pid string, publisherSdp *webrtc
 		setedRemoteDesc: false,
 		candidateCaches: list.New(),
 		isReady:         false,
+		exitCh:          make(chan int),
+		waitGroup:       &sync.WaitGroup{},
 	}
 	var err error
 	p.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
@@ -235,6 +266,15 @@ func CreateSubscribePeer(s *session, sid, ssid, pid string, publisherSdp *webrtc
 		if connectionState == webrtc.ICEConnectionStateConnected {
 			p.isReady = true
 			p.parent.OnIceReady(p.role, p.sessionid, p.srcSessionid, p.peerid)
+		} else if connectionState == webrtc.ICEConnectionStateDisconnected {
+			p.isReady = false
+			p.parent.OnIceDisconnected(p.role, p.sessionid, p.srcSessionid, p.peerid)
+		} else if connectionState == webrtc.ICEConnectionStateFailed {
+			p.isReady = false
+			p.parent.OnIceConnectionFailed(p.role, p.sessionid, p.srcSessionid, p.peerid)
+		} else if connectionState == webrtc.ICEConnectionStateClosed {
+			p.isReady = false
+			p.parent.OnIceConnectionClosed(p.role, p.sessionid, p.srcSessionid, p.peerid)
 		}
 	})
 	return &p, nil
@@ -242,6 +282,15 @@ func CreateSubscribePeer(s *session, sid, ssid, pid string, publisherSdp *webrtc
 
 func (p *peer) SetSendMessageHandler(f func(topic, msg string)) {
 	p.onSendMessageHandler = f
+}
+
+func (p *peer) Destroy() {
+	p.exitCh <- 1
+	p.waitGroup.Wait()
+
+	if p.peerConnection != nil {
+		p.peerConnection.Close()
+	}
 }
 
 func (p *peer) HandleMessage(j jsonparser) {

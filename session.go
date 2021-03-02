@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/list"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -101,39 +102,49 @@ func (sess *session) HandleMessage(j jsonparser) {
 		sess.subsmux.Unlock()
 		peer.HandleMessage(j)
 	} else if command == "stopsub" {
-		sess.subsmux.Lock()
-		defer sess.subsmux.Unlock()
+		sess.subsmux.RLock()
 		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
-			delete(sess.subscribers, sessionid+srcsessionid+peerid)
+			go sess.ReleaseSubscriberPeer(sessionid, srcsessionid, peerid)
 		}
+		sess.subsmux.RUnlock()
 	} else if command == "offer" {
 		sess.subsmux.RLock()
-		defer sess.subsmux.RUnlock()
 		if _, ok := sess.publishers[peerid]; ok {
 			peer := sess.publishers[peerid]
-			peer.HandleMessage(j)
+			go peer.HandleMessage(j)
 		} else {
 			fmt.Println("not publish yet:")
 		}
+		sess.subsmux.RUnlock()
 	} else if command == "answer" {
 		sess.subsmux.RLock()
-		defer sess.subsmux.RUnlock()
 		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
 			peer := sess.subscribers[sessionid+srcsessionid+peerid]
-			peer.HandleMessage(j)
+			go peer.HandleMessage(j)
 		} else {
 			fmt.Println("not subscribe yet:")
 		}
+		sess.subsmux.RUnlock()
 	} else if command == "candidate" {
+		sess.pubsmux.RLock()
 		if _, ok := sess.publishers[peerid]; ok {
 			peer := sess.publishers[peerid]
-			peer.HandleMessage(j)
-		} else if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
-			peer := sess.subscribers[sessionid+srcsessionid+peerid]
-			peer.HandleMessage(j)
-		} else {
-			fmt.Println("not publish/subscribe yet")
+			go peer.HandleMessage(j)
+			sess.pubsmux.RUnlock()
+			return
 		}
+		sess.pubsmux.RUnlock()
+
+		sess.subsmux.RLock()
+		if _, ok := sess.subscribers[sessionid+srcsessionid+peerid]; ok {
+			peer := sess.subscribers[sessionid+srcsessionid+peerid]
+			go peer.HandleMessage(j)
+			sess.subsmux.RUnlock()
+			return
+		}
+		sess.subsmux.RUnlock()
+
+		fmt.Println("candidate not process, because not found peer")
 	} else {
 		fmt.Println("session unsupport msg type:", command)
 	}
@@ -156,7 +167,7 @@ func (sess *session) OnIceReady(role int, sid, ssid, pid string) {
 		sess.pubsmux.RLock()
 		defer sess.pubsmux.RUnlock()
 		if _, ok := sess.publishers[pid]; ok {
-			sess.parent.OnPublisherReady(sid, pid)
+			go sess.parent.OnPublisherReady(sid, pid)
 			return
 		}
 	}
@@ -164,6 +175,142 @@ func (sess *session) OnIceReady(role int, sid, ssid, pid string) {
 	if role == 2 {
 		// do nothing
 	}
+}
+
+// 1>. clean all publish peer if exist
+// 2>. clean all subscribe peer if exist
+// 3>. clean watch other people' publish peer if exist (by return sid, in last callstack)
+func (sess *session) DoLeave() string {
+	sess.pubsmux.Lock()
+	for _, value := range sess.publishers {
+		go value.Destroy()
+	}
+	sess.publishers = make(map[string]*peer)
+	sess.pubsmux.Unlock()
+
+	sess.subsmux.Lock()
+	for _, value := range sess.subscribers {
+		go value.Destroy()
+	}
+	sess.subscribers = make(map[string]*peer)
+	sess.subsmux.Unlock()
+
+	return sess.sessionid
+}
+
+func (sess *session) OnIceDisconnected(role int, sid, ssid, pid string) {
+	if role == 1 {
+		sess.pubsmux.RLock()
+		if _, ok := sess.publishers[pid]; ok {
+			go sess.parent.OnPublisherPeerDisconnected(sid, pid)
+			sess.pubsmux.RUnlock()
+			return
+		}
+		sess.pubsmux.RUnlock()
+	}
+
+	if role == 2 {
+		sess.subsmux.RLock()
+		if _, ok := sess.subscribers[pid]; ok {
+			go sess.parent.OnSubscriberPeerDisconnected(sid, ssid, pid)
+			sess.subsmux.RUnlock()
+			return
+		}
+		sess.subsmux.RUnlock()
+	}
+}
+
+func (sess *session) OnIceConnectionFailed(role int, sid, ssid, pid string) {
+	if role == 1 {
+		sess.pubsmux.RLock()
+		if _, ok := sess.publishers[pid]; ok {
+			go sess.parent.OnPublisherPeerFailed(sid, pid)
+			sess.pubsmux.RUnlock()
+			return
+		}
+		sess.pubsmux.RUnlock()
+	}
+
+	if role == 2 {
+		sess.subsmux.RLock()
+		if _, ok := sess.subscribers[pid]; ok {
+			go sess.parent.OnSubscriberPeerFailed(sid, ssid, pid)
+			sess.subsmux.RUnlock()
+			return
+		}
+		sess.subsmux.RUnlock()
+	}
+}
+
+func (sess *session) OnIceConnectionClosed(role int, sid, ssid, pid string) {
+	if role == 1 {
+		sess.pubsmux.RLock()
+		if _, ok := sess.publishers[pid]; ok {
+			go sess.parent.OnPublisherPeerFailed(sid, pid)
+			sess.pubsmux.RUnlock()
+			return
+		}
+		sess.pubsmux.RUnlock()
+	}
+
+	if role == 2 {
+		sess.subsmux.RLock()
+		if _, ok := sess.subscribers[pid]; ok {
+			go sess.parent.OnSubscriberPeerFailed(sid, ssid, pid)
+			sess.subsmux.RUnlock()
+			return
+		}
+		sess.subsmux.RUnlock()
+	}
+}
+
+func (sess *session) ReleasePublisher(sid, pid string) {
+	sess.pubsmux.Lock()
+	if _, ok := sess.publishers[pid]; ok {
+		peer := sess.publishers[pid]
+		go peer.Destroy()
+		delete(sess.publishers, pid)
+	}
+	sess.pubsmux.Unlock()
+
+	sess.subsmux.Lock()
+	for _, value := range sess.subscribers {
+		if value.peerid == pid {
+			go value.Destroy()
+			key := value.sessionid + value.srcSessionid + value.peerid
+			delete(sess.subscribers, key)
+		}
+	}
+	sess.subsmux.Unlock()
+}
+
+func (sess *session) ReleaseSubscriberPeer(sid, ssid, pid string) {
+	sess.subsmux.Lock()
+	if _, ok := sess.subscribers[sid+ssid+pid]; ok {
+		peer := sess.subscribers[sid+ssid+pid]
+		go peer.Destroy()
+		delete(sess.subscribers, sid+ssid+pid)
+	}
+	sess.subsmux.Unlock()
+}
+
+func (sess *session) HandleSubscriberLeaved(sid string) {
+	var lst list.List
+	sess.pubsmux.RLock()
+	for _, value := range sess.publishers {
+		lst.PushBack(value.peerid)
+	}
+	sess.pubsmux.RUnlock()
+
+	sess.subsmux.Lock()
+	for it := lst.Front(); it != nil; it = it.Next() {
+		if _, ok := sess.subscribers[sid+sess.sessionid+it.Value.(string)]; ok {
+			peer := sess.subscribers[sid+sess.sessionid+it.Value.(string)]
+			go peer.Destroy()
+			delete(sess.subscribers, sid+sess.sessionid+it.Value.(string))
+		}
+	}
+	sess.subsmux.Unlock()
 }
 
 func (sess *session) OnReceivedAudioData(buff []byte, len int) {
@@ -204,9 +351,8 @@ func (sess *session) BroadcastAppData(fromSid, fromPid string, buff []byte, len 
 	sess.subsmux.RUnlock()
 }
 
-func (sess *session) IsStillAlive() bool {
+func (sess *session) CheckKeepAlive() {
 	if (time.Now().Unix() - sess.alivetime) > 60 {
-		return false
+		go sess.parent.HandleKeepaliveTimeout(sess.sessionid)
 	}
-	return true
 }
