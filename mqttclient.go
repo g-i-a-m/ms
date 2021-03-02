@@ -20,6 +20,9 @@ type mqttonnection struct {
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 	fmt.Println("mqtt Connected")
+	if token := client.Subscribe("pion-MediaServer", 2, nil); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
@@ -58,15 +61,15 @@ func (conn *mqttonnection) Init() {
 	})
 	opts.SetOnConnectHandler(connectHandler)
 	opts.SetConnectionLostHandler(connectLostHandler)
-
+	opts.SetReconnectingHandler(func(client mqtt.Client, op *mqtt.ClientOptions) {
+		fmt.Println("reconnecting handler")
+	})
+	opts.SetResumeSubs(true)
 	conn.client = mqtt.NewClient(opts)
 	if token := conn.client.Connect(); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 
-	if token := conn.client.Subscribe("pion-MediaServer", 0, nil); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	}
 }
 
 // OnReceivedMessage
