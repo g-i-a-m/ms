@@ -316,6 +316,13 @@ func (sess *session) HandleSubscriberLeaved(sid string) {
 	sess.subsmux.Unlock()
 }
 
+func (sess *session) RequestPli(pid string) {
+	if _, ok := sess.publishers[pid]; ok {
+		peer := sess.publishers[pid]
+		go peer.SendPli()
+	}
+}
+
 func (sess *session) OnReceivedAudioData(buff []byte, len int) {
 	sess.subsmux.RLock()
 	defer sess.subsmux.RUnlock()

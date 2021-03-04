@@ -326,6 +326,29 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 			if err != nil {
 				panic(err)
 			}
+			go func() {
+				var pkts []rtcp.Packet
+				if pkts, _, err = p.videoSender.ReadRTCP(); err != nil {
+					panic(err)
+				}
+				for _, pkt := range pkts {
+					_, ok := pkt.(*rtcp.PictureLossIndication)
+					if ok {
+						fmt.Printf("request %s %s key frame (PLI)\n", p.srcSessionid, p.peerid)
+						p.parent.RequestPli(p.peerid)
+					}
+					_, ok = pkt.(*rtcp.SliceLossIndication)
+					if ok {
+						fmt.Printf("request %s %s key frame (SLI)\n", p.srcSessionid, p.peerid)
+						p.parent.RequestPli(p.peerid)
+					}
+					_, ok = pkt.(*rtcp.FullIntraRequest)
+					if ok {
+						fmt.Printf("request %s %s key frame (FIR)\n", p.srcSessionid, p.peerid)
+						p.parent.RequestPli(p.peerid)
+					}
+				}
+			}()
 		} else if media.MediaName.Media == "audio" {
 			p.audioTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion-a")
 			if err != nil {
@@ -477,6 +500,17 @@ func (p *peer) IsReady() bool {
 func (p *peer) SendFir() {
 	if p.role != 1 {
 		fmt.Println("illegal rtcp fir request")
+		return
+	}
+
+	if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.FullIntraRequest{MediaSSRC: uint32(p.getVideoSsrc())}}); rtcpSendErr != nil {
+		fmt.Println(rtcpSendErr)
+	}
+}
+
+func (p *peer) SendPli() {
+	if p.role != 1 {
+		fmt.Println("illegal rtcp pli request")
 		return
 	}
 
