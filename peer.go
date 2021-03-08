@@ -286,7 +286,7 @@ func (p *peer) SetSendMessageHandler(f func(topic, msg string)) {
 func (p *peer) Destroy() {
 	p.exitCh <- 1
 	p.waitGroup.Wait()
-
+	close(p.exitCh)
 	if p.peerConnection != nil {
 		p.peerConnection.Close()
 	}
@@ -327,25 +327,27 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 				panic(err)
 			}
 			go func() {
-				var pkts []rtcp.Packet
-				if pkts, _, err = p.videoSender.ReadRTCP(); err != nil {
-					panic(err)
-				}
-				for _, pkt := range pkts {
-					_, ok := pkt.(*rtcp.PictureLossIndication)
-					if ok {
-						fmt.Printf("request %s %s key frame (PLI)\n", p.srcSessionid, p.peerid)
-						p.parent.RequestPli(p.peerid)
+				for {
+					var pkts []rtcp.Packet
+					if pkts, _, err = p.videoSender.ReadRTCP(); err != nil {
+						panic(err)
 					}
-					_, ok = pkt.(*rtcp.SliceLossIndication)
-					if ok {
-						fmt.Printf("request %s %s key frame (SLI)\n", p.srcSessionid, p.peerid)
-						p.parent.RequestPli(p.peerid)
-					}
-					_, ok = pkt.(*rtcp.FullIntraRequest)
-					if ok {
-						fmt.Printf("request %s %s key frame (FIR)\n", p.srcSessionid, p.peerid)
-						p.parent.RequestPli(p.peerid)
+					for _, pkt := range pkts {
+						_, ok := pkt.(*rtcp.PictureLossIndication)
+						if ok {
+							fmt.Printf("request %s %s key frame (PLI)\n", p.srcSessionid, p.peerid)
+							p.parent.RequestPli(p.peerid)
+						}
+						_, ok = pkt.(*rtcp.SliceLossIndication)
+						if ok {
+							fmt.Printf("request %s %s key frame (SLI)\n", p.srcSessionid, p.peerid)
+							p.parent.RequestPli(p.peerid)
+						}
+						_, ok = pkt.(*rtcp.FullIntraRequest)
+						if ok {
+							fmt.Printf("request %s %s key frame (FIR)\n", p.srcSessionid, p.peerid)
+							p.parent.RequestPli(p.peerid)
+						}
 					}
 				}
 			}()
