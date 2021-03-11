@@ -94,6 +94,10 @@ func NewPeerConnection(configuration Configuration) (*PeerConnection, error) {
 		return nil, err
 	}
 
+	if err := m.RegisterDefaultHeaderExtension(); err != nil {
+		return nil, err
+	}
+
 	i := &interceptor.Registry{}
 	if err := RegisterDefaultInterceptors(m, i); err != nil {
 		return nil, err

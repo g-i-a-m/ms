@@ -86,7 +86,7 @@ func (m *MediaEngine) RegisterDefaultCodecs() error {
 		}
 	}
 
-	videoRTCPFeedback := []RTCPFeedback{{"goog-remb", ""}, {"ccm", "fir"}, {"nack", ""}, {"nack", "pli"}}
+	videoRTCPFeedback := []RTCPFeedback{{"goog-remb", ""}, {TypeRTCPFBTransportCC, ""}, {"ccm", "fir"}, {"nack", ""}, {"nack", "pli"}}
 	for _, codec := range []RTPCodecParameters{
 		{
 			RTPCodecCapability: RTPCodecCapability{MimeTypeVP8, 90000, 0, "", videoRTCPFeedback},
@@ -204,6 +204,36 @@ func (m *MediaEngine) RegisterCodec(codec RTPCodecParameters, typ RTPCodecType) 
 		m.videoCodecs = m.addCodec(m.videoCodecs, codec)
 	default:
 		return ErrUnknownType
+	}
+	return nil
+}
+
+// RegisterDefaultHeaderExtension registers the default Header extension supported by Pion WebRTC.
+// RegisterDefaultHeaderExtension is not safe for concurrent use.
+func (m *MediaEngine) RegisterDefaultHeaderExtension() error {
+	for _, u := range []string{
+		"urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+		"http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+		"http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+		"urn:ietf:params:rtp-hdrext:sdes:mid",
+		"urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id",
+		"urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id",
+	} {
+		if err := m.RegisterHeaderExtension(RTPHeaderExtensionCapability{URI: u}, RTPCodecTypeAudio); err != nil {
+			return err
+		}
+	}
+
+	for _, u := range []string{
+		"http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+		"http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+		"urn:ietf:params:rtp-hdrext:sdes:mid",
+		"urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id",
+		"urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id",
+	} {
+		if err := m.RegisterHeaderExtension(RTPHeaderExtensionCapability{URI: u}, RTPCodecTypeVideo); err != nil {
+			return err
+		}
 	}
 	return nil
 }
