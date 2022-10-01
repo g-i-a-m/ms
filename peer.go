@@ -8,92 +8,167 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 )
 
+type fCandiMsg struct {
+	Cmd          string                  `json:"cmd"`
+	Clusterid    string                  `json:"clusterid"`
+	Podid        string                  `json:"podid"`
+	Roomid       string                  `json:"roomid"`
+	Userid       string                  `json:"userid"`
+	RemoteUserid string                  `json:"remoteuserid"`
+	Peerid       string                  `json:"peerid"`
+	ISPType      int                     `json:"isptype"`
+	Candidate    webrtc.ICECandidateInit `json:"candidate"`
+}
+
+type candiMsg struct {
+	Cmd          string                  `json:"cmd"`
+	Userid       string                  `json:"userid"`
+	RemoteUserid string                  `json:"remoteuserid"`
+	Peerid       string                  `json:"peerid"`
+	ISPType      int                     `json:"isptype"`
+	Candidate    webrtc.ICECandidateInit `json:"candidate"`
+}
+
 type peer struct {
-	sessionid            string
-	srcSessionid         string
+	conf                 *Config
+	userid               string
+	remoteuserid         string
 	peerid               string
 	role                 int
-	peerMux              sync.RWMutex
+	isFake               bool
 	peerConnection       *webrtc.PeerConnection
 	videoTrack           *webrtc.TrackLocalStaticRTP
 	videoSender          *webrtc.RTPSender
 	audioTrack           *webrtc.TrackLocalStaticRTP
 	audioSender          *webrtc.RTPSender
 	dataChannel          *webrtc.DataChannel
+	filter               *KeyframeFilter
 	onSendMessageHandler func(topic, msg string)
 	publishersdp         *webrtc.SessionDescription
 	parent               *session
 	setedRemoteDesc      bool
 	candidateCaches      *list.List
 	isReady              bool
+	shouldNotify         bool
+	videoCodec           webrtc.RTPCodecParameters
+	audioCodec           webrtc.RTPCodecParameters
 	audiossrc            *list.List
 	videossrc            *list.List
 	appssrc              *list.List
+	remoteSdpReceived    chan int
 	exitCh               chan int
 	waitGroup            *sync.WaitGroup
 }
 
+func initMediaCodec(m *webrtc.MediaEngine) error {
+	for _, codec := range []webrtc.RTPCodecParameters{
+		{
+			RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus,
+				ClockRate: 48000, Channels: 2, SDPFmtpLine: "minptime=10;useinbandfec=1",
+				RTCPFeedback: nil},
+			PayloadType: 111,
+		},
+	} {
+		if err := m.RegisterCodec(codec, webrtc.RTPCodecTypeAudio); err != nil {
+			return err
+		}
+	}
+
+	videoRTCPFeedback := []webrtc.RTCPFeedback{{Type: webrtc.TypeRTCPFBTransportCC,
+		Parameter: ""}, {Type: "ccm", Parameter: "fir"}, {Type: "nack", Parameter: ""},
+		{Type: "nack", Parameter: "pli"}}
+	for _, codec := range []webrtc.RTPCodecParameters{
+		{
+			RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264,
+				ClockRate: 90000, Channels: 0,
+				SDPFmtpLine:  "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f",
+				RTCPFeedback: videoRTCPFeedback},
+			PayloadType: 102,
+		},
+	} {
+		if err := m.RegisterCodec(codec, webrtc.RTPCodecTypeVideo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // CreatePublishPeer to create a object for publish peer
-func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
+func CreatePublishPeer(s *session, sid, pid, podid string, c *Config, isFake bool) (*peer, error) {
 	p := peer{
-		sessionid:       sid,
-		srcSessionid:    "",
-		peerid:          pid,
-		role:            1,
-		peerConnection:  nil,
-		videoTrack:      nil,
-		videoSender:     nil,
-		audioTrack:      nil,
-		audioSender:     nil,
-		dataChannel:     nil,
-		publishersdp:    nil,
-		parent:          s,
-		setedRemoteDesc: false,
-		candidateCaches: list.New(),
-		isReady:         false,
-		audiossrc:       list.New(),
-		videossrc:       list.New(),
-		appssrc:         list.New(),
-		exitCh:          make(chan int),
-		waitGroup:       &sync.WaitGroup{},
+		conf:              c,
+		userid:            sid,
+		remoteuserid:      "",
+		peerid:            pid,
+		role:              1,
+		isFake:            isFake,
+		peerConnection:    nil,
+		videoTrack:        nil,
+		videoSender:       nil,
+		audioTrack:        nil,
+		audioSender:       nil,
+		dataChannel:       nil,
+		filter:            CreateKeyframeFilter(!isFake),
+		publishersdp:      nil,
+		parent:            s,
+		setedRemoteDesc:   false,
+		candidateCaches:   list.New(),
+		isReady:           false,
+		shouldNotify:      false,
+		audiossrc:         list.New(),
+		videossrc:         list.New(),
+		appssrc:           list.New(),
+		remoteSdpReceived: make(chan int),
+		exitCh:            make(chan int),
+		waitGroup:         &sync.WaitGroup{},
 	}
 	var err error
-	p.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs:       []string{"turn:node.offcncloud.com:9900"},
-				Username:   "ctf",
-				Credential: "ctf123",
-			},
-		},
-		ICETransportPolicy: webrtc.NewICETransportPolicy("all"),
-	})
-	if err != nil {
-		return nil, err // fmt.Errorf("Create publish peer failed")
+	m := &webrtc.MediaEngine{}
+	if err = initMediaCodec(m); err != nil {
+		return nil, err
+	}
+
+	if err = m.RegisterDefaultHeaderExtension(); err != nil {
+		return nil, err
+	}
+
+	i := &interceptor.Registry{}
+	if err = webrtc.RegisterDefaultInterceptors(m, i); err != nil {
+		return nil, err
+	}
+
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
+	if p.peerConnection, err = api.NewPeerConnection(webrtc.Configuration{}); err != nil {
+		fmt.Println("Create publish peer failed")
+		return nil, err
 	}
 
 	p.peerConnection.OnTrack(func(remoteTrack *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		ssrc := remoteTrack.SSRC()
 		if p.isAudioSsrc(int(ssrc)) {
-			fmt.Printf("Got audio remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
+			p.audioCodec = remoteTrack.Codec()
+			p.parent.UpdateAudioCodec(p.audioCodec)
+			fmt.Println("publish audio codec: ", p.audioCodec)
+			fmt.Printf("Got audio remote track, id:%s, streamid:%s, ssrc:%x\n",
+				[]byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
+			p.waitGroup.Add(1)
 			go func() {
-				p.waitGroup.Add(1)
 				defer p.waitGroup.Done()
 				rtpBuf := make([]byte, 1500)
 				for {
 					i, _, readErr := remoteTrack.Read(rtpBuf)
 
 					if readErr != nil && readErr == io.EOF {
-						runtime.Gosched()
+						return
 					}
 
 					p.parent.OnReceivedAudioData(rtpBuf, i)
@@ -102,24 +177,14 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 			return
 		}
 		if p.isVideoSsrc(int(ssrc)) {
-			fmt.Printf("Got video remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
-			/* go func() {
-				p.waitGroup.Add(1)
-				defer p.waitGroup.Done()
-				ticker := time.NewTicker(time.Second * 2)
-				for {
-					select {
-					case <-p.exitCh:
-						return
-					case <-ticker.C:
-						if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remoteTrack.SSRC())}}); rtcpSendErr != nil {
-							fmt.Println(rtcpSendErr)
-						}
-					}
-				}
-			}() */
+			p.videoCodec = remoteTrack.Codec()
+			p.parent.UpdateVideoCodec(p.videoCodec)
+			fmt.Println("publish video codec: ", p.videoCodec)
+			fmt.Printf("Got video remote track, id:%s, streamid:%s, ssrc:%x\n",
+				[]byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
+
+			p.waitGroup.Add(1)
 			go func() {
-				p.waitGroup.Add(1)
 				defer p.waitGroup.Done()
 				rtpBuf := make([]byte, 1500)
 				for {
@@ -132,7 +197,8 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 			}()
 			return
 		}
-		fmt.Printf("Got unknow remote track, id:%s, streamid:%s, ssrc:%x\n", []byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
+		fmt.Printf("Got unknow remote track, id:%s, streamid:%s, ssrc:%x\n",
+			[]byte(remoteTrack.ID()), []byte(remoteTrack.StreamID()), remoteTrack.SSRC())
 	})
 
 	p.peerConnection.OnDataChannel(func(channel *webrtc.DataChannel) {
@@ -142,8 +208,16 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 			channel.Detach()
 		}) */
 
+		p.dataChannel.OnError(func(err error) {
+			fmt.Printf("pub data channel got an error:%e\n", err)
+		})
+
 		p.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-			p.parent.OnReceivedAppData(p.sessionid, p.peerid, msg.Data, 0)
+			if !p.isFake {
+				// send to record service
+			}
+			p.parent.OnReceivedAppData(p.userid, p.peerid, msg.Data, len(msg.Data))
+			fmt.Printf("%s:%s ### recv channel data len:%d\n", p.userid, p.peerid, len(msg.Data))
 		})
 	})
 
@@ -155,38 +229,80 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 		if candi == nil {
 			return // must be publish ICE Gatherer completed
 		}
+		conf, err := GetConfig()
+		if conf == nil || err != nil {
+			return
+		}
+
+		if conf.Localaddr != candi.Address {
+			return // filter candidate
+		}
+
+		go p.CheckIceInfo(candi.TCPType, candi.Address, candi.Port)
+
+		if conf.Proxyaddr != "" {
+			candi.Address = conf.Proxyaddr
+			candi.Port = uint16(conf.Proxyport)
+		}
+
 		c := candi.ToJSON()
-		jsonBytes, err := json.Marshal(c)
-		if err != nil {
-			panic(err)
+		if isFake {
+			m := fCandiMsg{
+				Cmd:          CmdFakeCandidate,
+				Clusterid:    p.conf.Clusterid,
+				Podid:        p.conf.Uuid,
+				Roomid:       p.parent.parent.roomid,
+				Userid:       p.userid,
+				RemoteUserid: p.userid,
+				Peerid:       p.peerid,
+				ISPType:      0,
+				Candidate:    c,
+			}
+
+			msg, err := json.Marshal(m)
+			if err != nil {
+				fmt.Println("generate json error:", err)
+			}
+			PublishMessage2CrossClusterPod(podid, string(msg))
+		} else {
+			msg, err := json.Marshal(candiMsg{
+				Cmd:       CmdCandidate,
+				Userid:    p.userid,
+				Peerid:    p.peerid,
+				ISPType:   0,
+				Candidate: c,
+			})
+			if err != nil {
+				fmt.Println("generate json error:", err)
+			}
+			p.onSendMessageHandler(p.userid, string(msg))
 		}
-		fmt.Printf("Got a local candidate: %s\n", jsonBytes)
-		msg, err := json.Marshal(map[string]interface{}{
-			"type":      "candidate",
-			"sessionid": p.sessionid,
-			"peerid":    p.peerid,
-			"candidate": fmt.Sprintf("%s", jsonBytes),
-		})
-		if err != nil {
-			fmt.Println("generate json error:", err)
-		}
-		p.onSendMessageHandler(p.sessionid, string(msg))
 	})
 
 	p.peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		fmt.Printf("Connection State has changed: %s\n", connectionState.String())
+		fmt.Printf("%s:%s Connection State has changed: %s\n", p.userid, p.peerid, connectionState.String())
+		if p.peerConnection == nil {
+			return
+		}
 		if connectionState == webrtc.ICEConnectionStateConnected {
 			p.isReady = true
-			p.parent.OnIceReady(p.role, p.sessionid, p.srcSessionid, p.peerid)
+			p.shouldNotify = true
+			p.filter.Startup(func() {
+				p.sendPli()
+			})
+			p.parent.OnIceReady(p.role, p.userid, p.remoteuserid, p.peerid)
 		} else if connectionState == webrtc.ICEConnectionStateDisconnected {
 			p.isReady = false
-			p.parent.OnIceDisconnected(p.role, p.sessionid, p.srcSessionid, p.peerid)
+			p.filter.Shutdown()
+			p.parent.OnIceDisconnected(p.role, p.userid, p.remoteuserid, p.peerid)
 		} else if connectionState == webrtc.ICEConnectionStateFailed {
 			p.isReady = false
-			p.parent.OnIceConnectionFailed(p.role, p.sessionid, p.srcSessionid, p.peerid)
+			p.filter.Shutdown()
+			p.parent.OnIceFailed(p.role, p.userid, p.remoteuserid, p.peerid)
 		} else if connectionState == webrtc.ICEConnectionStateClosed {
 			p.isReady = false
-			p.parent.OnIceConnectionClosed(p.role, p.sessionid, p.srcSessionid, p.peerid)
+			p.filter.Shutdown()
+			p.parent.OnIceClosed(p.role, p.userid, p.remoteuserid, p.peerid)
 		}
 	})
 
@@ -194,39 +310,51 @@ func CreatePublishPeer(s *session, sid, pid string) (*peer, error) {
 }
 
 // CreateSubscribePeer to create a object for subscribe peer
-func CreateSubscribePeer(s *session, sid, ssid, pid string, publisherSdp *webrtc.SessionDescription) (*peer, error) {
+func CreateSubscribePeer(s *session, sid, ssid, pid, podid string, c *Config, publisherSdp *webrtc.SessionDescription,
+	acodec, vcodec webrtc.RTPCodecParameters, isFake bool) (*peer, error) {
 	p := peer{
-		sessionid:       sid,
-		srcSessionid:    ssid,
-		peerid:          pid,
-		role:            2,
-		peerConnection:  nil,
-		videoTrack:      nil,
-		videoSender:     nil,
-		audioTrack:      nil,
-		audioSender:     nil,
-		dataChannel:     nil,
-		publishersdp:    publisherSdp,
-		parent:          s,
-		setedRemoteDesc: false,
-		candidateCaches: list.New(),
-		isReady:         false,
-		exitCh:          make(chan int),
-		waitGroup:       &sync.WaitGroup{},
+		conf:              c,
+		userid:            sid,
+		remoteuserid:      ssid,
+		peerid:            pid,
+		role:              2,
+		isFake:            isFake,
+		peerConnection:    nil,
+		videoTrack:        nil,
+		videoSender:       nil,
+		audioTrack:        nil,
+		audioSender:       nil,
+		dataChannel:       nil,
+		filter:            nil,
+		publishersdp:      publisherSdp,
+		parent:            s,
+		setedRemoteDesc:   false,
+		candidateCaches:   list.New(),
+		isReady:           false,
+		shouldNotify:      false,
+		videoCodec:        vcodec,
+		audioCodec:        acodec,
+		remoteSdpReceived: make(chan int),
+		exitCh:            make(chan int),
+		waitGroup:         &sync.WaitGroup{},
 	}
 	var err error
-	p.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs:       []string{"turn:node.offcncloud.com:9900"},
-				Username:   "ctf",
-				Credential: "ctf123",
-			},
-		},
-		ICETransportPolicy: webrtc.NewICETransportPolicy("all"),
-	})
-	if err != nil {
-		return nil, err // fmt.Errorf("Create subscribe peer failed")
+	m := &webrtc.MediaEngine{}
+	initMediaCodec(m)
+
+	if err = m.RegisterDefaultHeaderExtension(); err != nil {
+		return nil, err
+	}
+
+	i := &interceptor.Registry{}
+	if err = webrtc.RegisterDefaultInterceptors(m, i); err != nil {
+		return nil, err
+	}
+
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
+	if p.peerConnection, err = api.NewPeerConnection(webrtc.Configuration{}); err != nil {
+		fmt.Println("Create subscribe peer failed")
+		return nil, err
 	}
 
 	p.peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
@@ -241,39 +369,76 @@ func CreateSubscribePeer(s *session, sid, ssid, pid string, publisherSdp *webrtc
 		if candi == nil {
 			return // must be subscribe ICE Gatherer completed
 		}
-		fmt.Printf("Got a local candidate: %s\n", candi.String())
+
+		conf, err := GetConfig()
+		if conf == nil || err != nil {
+			return
+		}
+
+		if conf.Localaddr != candi.Address {
+			return // filter candidate
+		}
+
+		go p.CheckIceInfo(candi.TCPType, candi.Address, candi.Port)
+
+		if conf.Proxyaddr != "" {
+			candi.Address = conf.Proxyaddr
+			candi.Port = uint16(conf.Proxyport)
+		}
+
 		c := candi.ToJSON()
-		jsonBytes, err := json.Marshal(c)
-		if err != nil {
-			panic(err)
+		if isFake {
+			m := fCandiMsg{
+				Cmd:          CmdFakeCandidate,
+				Clusterid:    p.conf.Clusterid,
+				Podid:        p.conf.Uuid,
+				Roomid:       p.parent.parent.roomid,
+				Userid:       p.remoteuserid,
+				RemoteUserid: p.remoteuserid,
+				Peerid:       p.peerid,
+				ISPType:      0,
+				Candidate:    c,
+			}
+
+			msg, err := json.Marshal(m)
+			if err != nil {
+				fmt.Println("generate json error:", err)
+			}
+			PublishMessage2CrossClusterPod(podid, string(msg))
+		} else {
+			msg, err := json.Marshal(candiMsg{
+				Cmd:          CmdCandidate,
+				Userid:       p.userid,
+				RemoteUserid: p.remoteuserid,
+				Peerid:       p.peerid,
+				ISPType:      0,
+				Candidate:    c,
+			})
+			if err != nil {
+				fmt.Println("generate json error:", err)
+			}
+			p.onSendMessageHandler(p.userid, string(msg))
 		}
-		fmt.Printf("Got a local candidate: %s\n", jsonBytes)
-		msg, err := json.Marshal(map[string]interface{}{
-			"type":      "candidate",
-			"sessionid": p.sessionid,
-			"peerid":    p.peerid,
-			"candidate": fmt.Sprintf("%s", jsonBytes),
-		})
-		if err != nil {
-			fmt.Println("generate json error:", err)
-		}
-		p.onSendMessageHandler(p.sessionid, string(msg))
 	})
 
 	p.peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		fmt.Printf("Connection State has changed: %s\n", connectionState.String())
+		fmt.Printf("%s <- %s:%s Connection State has changed: %s\n", p.userid, p.remoteuserid, p.peerid, connectionState.String())
+		if p.peerConnection == nil {
+			return
+		}
 		if connectionState == webrtc.ICEConnectionStateConnected {
 			p.isReady = true
-			p.parent.OnIceReady(p.role, p.sessionid, p.srcSessionid, p.peerid)
+			p.shouldNotify = true
+			p.parent.OnIceReady(p.role, p.userid, p.remoteuserid, p.peerid)
 		} else if connectionState == webrtc.ICEConnectionStateDisconnected {
 			p.isReady = false
-			p.parent.OnIceDisconnected(p.role, p.sessionid, p.srcSessionid, p.peerid)
+			// p.parent.OnIceDisconnected(p.role, p.userid, p.remoteuserid, p.peerid)
 		} else if connectionState == webrtc.ICEConnectionStateFailed {
 			p.isReady = false
-			p.parent.OnIceConnectionFailed(p.role, p.sessionid, p.srcSessionid, p.peerid)
+			p.parent.OnIceFailed(p.role, p.userid, p.remoteuserid, p.peerid)
 		} else if connectionState == webrtc.ICEConnectionStateClosed {
 			p.isReady = false
-			p.parent.OnIceConnectionClosed(p.role, p.sessionid, p.srcSessionid, p.peerid)
+			p.parent.OnIceClosed(p.role, p.userid, p.remoteuserid, p.peerid)
 		}
 	})
 	return &p, nil
@@ -284,23 +449,36 @@ func (p *peer) SetSendMessageHandler(f func(topic, msg string)) {
 }
 
 func (p *peer) Destroy() {
-	p.exitCh <- 1
-	p.waitGroup.Wait()
+	//p.exitCh <- 1
+	//p.waitGroup.Wait()
+	if p.filter != nil {
+		p.filter.Shutdown()
+	}
+
 	close(p.exitCh)
 	if p.peerConnection != nil {
 		p.peerConnection.Close()
+		p.peerConnection = nil
 	}
 }
 
 func (p *peer) HandleMessage(j jsonparser) {
-	command := GetValue(j, "type")
-	if command == "sub" {
+	command := GetValue(j, LabelCmd)
+	if command == CmdSub {
 		p.HandleSubscribe(j)
-	} else if command == "offer" {
+	} else if command == CmdOffer {
 		p.HandleRemoteOffer(j)
-	} else if command == "answer" {
+	} else if command == CmdAnswer {
 		p.HandleRemoteAnswer(j)
-	} else if command == "candidate" {
+	} else if command == CmdCandidate {
+		p.HandleRemoteCandidate(j)
+	} else if command == CmdFakeSubscribe {
+		p.HandleFakeSubscribe(j)
+	} else if command == CmdFakeOffer {
+		p.HandleFakeOffer(j)
+	} else if command == CmdFakeAnswer {
+		p.HandleFakeAnswer(j)
+	} else if command == CmdFakeCandidate {
 		p.HandleRemoteCandidate(j)
 	} else {
 		fmt.Println("peer unsupport msg type:", command)
@@ -308,9 +486,9 @@ func (p *peer) HandleMessage(j jsonparser) {
 }
 
 func (p *peer) HandleSubscribe(j jsonparser) {
-	sessionid := GetValue(j, "sessionid")
-	srcsessionid := GetValue(j, "srcsessionid")
-	peerid := GetValue(j, "peerid")
+	userID := GetValue(j, LabelSessID)
+	remoteUserID := GetValue(j, LabelSrcSessID)
+	peerid := GetValue(j, LabelPeerID)
 
 	psdp, err := p.publishersdp.Unmarshal()
 	if err != nil {
@@ -318,7 +496,8 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 	}
 	for _, media := range psdp.MediaDescriptions {
 		if media.MediaName.Media == "video" {
-			p.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8}, "video", "pion-v")
+			p.videoTrack, err = webrtc.NewTrackLocalStaticRTP(
+				webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion-v")
 			if err != nil {
 				panic(err)
 			}
@@ -330,29 +509,30 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 				for {
 					var pkts []rtcp.Packet
 					if pkts, _, err = p.videoSender.ReadRTCP(); err != nil {
-						panic(err)
+						return
 					}
 					for _, pkt := range pkts {
 						_, ok := pkt.(*rtcp.PictureLossIndication)
 						if ok {
-							fmt.Printf("request %s %s key frame (PLI)\n", p.srcSessionid, p.peerid)
+							fmt.Printf("recv from %s<-%s:%s rtcp PLI\n", p.userid, p.remoteuserid, p.peerid)
 							p.parent.RequestPli(p.peerid)
 						}
 						_, ok = pkt.(*rtcp.SliceLossIndication)
 						if ok {
-							fmt.Printf("request %s %s key frame (SLI)\n", p.srcSessionid, p.peerid)
+							fmt.Printf("recv from %s<-%s:%s rtcp SLI\n", p.userid, p.remoteuserid, p.peerid)
 							p.parent.RequestPli(p.peerid)
 						}
 						_, ok = pkt.(*rtcp.FullIntraRequest)
 						if ok {
-							fmt.Printf("request %s %s key frame (FIR)\n", p.srcSessionid, p.peerid)
+							fmt.Printf("recv from %s<-%s:%s rtcp FIR\n", p.userid, p.remoteuserid, p.peerid)
 							p.parent.RequestPli(p.peerid)
 						}
 					}
 				}
 			}()
 		} else if media.MediaName.Media == "audio" {
-			p.audioTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion-a")
+			p.audioTrack, err = webrtc.NewTrackLocalStaticRTP(
+				webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion-a")
 			if err != nil {
 				panic(err)
 			}
@@ -361,10 +541,20 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 				panic(err)
 			}
 		} else if media.MediaName.Media == "application" {
-			if p.dataChannel, err = p.peerConnection.CreateDataChannel("whiteboard", nil); err != nil {
+			var order = true
+			//var lefttime uint16 = 5000
+			var retransmit uint16 = 5
+			options := &webrtc.DataChannelInit{
+				Ordered: &order,
+				//MaxPacketLifeTime: &lefttime,
+				MaxRetransmits: &retransmit,
+			}
+			if p.dataChannel, err = p.peerConnection.CreateDataChannel("whiteboard", options); err != nil {
 				panic(err)
 			}
-
+			p.dataChannel.OnError(func(err error) {
+				fmt.Printf("sub data channel got an error:%e\n", err)
+			})
 			p.dataChannel.OnClose(func() {
 				fmt.Println("sub data channel has closed")
 			})
@@ -372,7 +562,10 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 				fmt.Println("sub data channel has opened")
 			})
 			p.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-				p.parent.OnReceivedAppData(p.sessionid, p.peerid, msg.Data, 0)
+				// must send to record service
+
+				p.parent.OnReceivedAppData(p.userid, p.peerid, msg.Data, len(msg.Data))
+				fmt.Printf("%s <- %s:%s ### recv channel data len:%d\n", p.userid, p.remoteuserid, p.peerid, len(msg.Data))
 			})
 		}
 	}
@@ -387,23 +580,23 @@ func (p *peer) HandleSubscribe(j jsonparser) {
 	}
 
 	msg, err := json.Marshal(map[string]interface{}{
-		"type":         "offer",
-		"sessionid":    sessionid,
-		"srcsessionid": srcsessionid,
-		"peerid":       peerid,
-		"sdp":          offer.SDP,
+		LabelCmd:       CmdOffer,
+		LabelSessID:    userID,
+		LabelSrcSessID: remoteUserID,
+		LabelPeerID:    peerid,
+		LabelSDP:       offer.SDP,
 	})
 	if err != nil {
 		fmt.Println("generate json error:", err)
 	}
-	p.onSendMessageHandler(sessionid, string(msg))
+	p.onSendMessageHandler(userID, string(msg))
 }
 
 // HandleRemoteOffer
 func (p *peer) HandleRemoteOffer(j jsonparser) {
-	sessionid := GetValue(j, "sessionid")
-	peerid := GetValue(j, "peerid")
-	strSdp := GetValue(j, "sdp")
+	userID := GetValue(j, LabelSessID)
+	peerid := GetValue(j, LabelPeerID)
+	strSdp := GetValue(j, LabelSDP)
 
 	mapSdp := map[string]interface{}{
 		"type": "offer",
@@ -411,6 +604,9 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 	}
 	offer := webrtc.SessionDescription{}
 	strJSON, err := json.Marshal(mapSdp)
+	if err != nil {
+		panic(err)
+	}
 	err = json.Unmarshal(strJSON, &offer)
 	if err != nil {
 		panic(err)
@@ -424,6 +620,7 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 	if err = p.peerConnection.SetRemoteDescription(offer); err != nil {
 		panic(err)
 	}
+	go func() { p.remoteSdpReceived <- 0 }()
 
 	// Create answer
 	answer, err := p.peerConnection.CreateAnswer(nil)
@@ -437,21 +634,21 @@ func (p *peer) HandleRemoteOffer(j jsonparser) {
 	p.SetCachedCandidates()
 
 	msg, err := json.Marshal(map[string]interface{}{
-		"type":      "answer",
-		"sessionid": sessionid,
-		"peerid":    peerid,
-		"sdp":       answer.SDP,
-		"code":      0,
+		LabelCmd:    CmdAnswer,
+		LabelSessID: userID,
+		LabelPeerID: peerid,
+		LabelSDP:    answer.SDP,
+		LabelCode:   0,
 	})
 	if err != nil {
 		fmt.Println("generate json error:", err)
 	}
-	p.onSendMessageHandler(sessionid, string(msg))
+	p.onSendMessageHandler(userID, string(msg))
 }
 
 // HandleRemoteAnswer
 func (p *peer) HandleRemoteAnswer(j jsonparser) {
-	strsdp := GetValue(j, "sdp")
+	strsdp := GetValue(j, LabelSDP)
 
 	mapSdp := map[string]interface{}{
 		"type": "answer",
@@ -460,6 +657,10 @@ func (p *peer) HandleRemoteAnswer(j jsonparser) {
 	answer := webrtc.SessionDescription{}
 
 	strJSON, err := json.Marshal(mapSdp)
+	if err != nil {
+		fmt.Println("")
+		panic(err)
+	}
 	if err = json.Unmarshal(strJSON, &answer); err != nil {
 		panic(err)
 	}
@@ -468,12 +669,13 @@ func (p *peer) HandleRemoteAnswer(j jsonparser) {
 	if err := p.peerConnection.SetRemoteDescription(answer); err != nil {
 		panic(err)
 	}
+	go func() { p.remoteSdpReceived <- 0 }()
 	p.SetCachedCandidates()
 }
 
 // HandleRemoteCandidate
 func (p *peer) HandleRemoteCandidate(j jsonparser) {
-	strcandidate := GetValue(j, "candidate")
+	strcandidate := GetValue(j, CmdCandidate)
 	if !p.setedRemoteDesc {
 		p.candidateCaches.PushBack(strcandidate)
 		return
@@ -495,28 +697,239 @@ func (p *peer) SetCachedCandidates() {
 	}
 }
 
+func (p *peer) HandleFakeSubscribe(j jsonparser) {
+	podid := GetValue(j, LabelPodId)
+	userID := GetValue(j, LabelSessID)
+	// remoteUserID := GetValue(j, LabelSrcSessID)
+	peerid := GetValue(j, LabelPeerID)
+
+	psdp, err := p.publishersdp.Unmarshal()
+	if err != nil {
+		panic(err)
+	}
+	for _, media := range psdp.MediaDescriptions {
+		if media.MediaName.Media == "video" {
+			p.videoTrack, err = webrtc.NewTrackLocalStaticRTP(
+				webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion-v")
+			if err != nil {
+				panic(err)
+			}
+			p.videoSender, err = p.peerConnection.AddTrack(p.videoTrack)
+			if err != nil {
+				panic(err)
+			}
+			go func() {
+				for {
+					var pkts []rtcp.Packet
+					if pkts, _, err = p.videoSender.ReadRTCP(); err != nil {
+						return
+					}
+					for _, pkt := range pkts {
+						_, ok := pkt.(*rtcp.PictureLossIndication)
+						if ok {
+							fmt.Printf("recv from %s<-%s:%s rtcp PLI\n", p.userid, p.remoteuserid, p.peerid)
+							p.parent.RequestPli(p.peerid)
+						}
+						_, ok = pkt.(*rtcp.SliceLossIndication)
+						if ok {
+							fmt.Printf("recv from %s<-%s:%s rtcp SLI\n", p.userid, p.remoteuserid, p.peerid)
+							p.parent.RequestPli(p.peerid)
+						}
+						_, ok = pkt.(*rtcp.FullIntraRequest)
+						if ok {
+							fmt.Printf("recv from %s<-%s:%s rtcp FIR\n", p.userid, p.remoteuserid, p.peerid)
+							p.parent.RequestPli(p.peerid)
+						}
+					}
+				}
+			}()
+		} else if media.MediaName.Media == "audio" {
+			p.audioTrack, err = webrtc.NewTrackLocalStaticRTP(
+				webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion-a")
+			if err != nil {
+				panic(err)
+			}
+			p.audioSender, err = p.peerConnection.AddTrack(p.audioTrack)
+			if err != nil {
+				panic(err)
+			}
+		} else if media.MediaName.Media == "application" {
+			var order = true
+			//var lefttime uint16 = 5000
+			var retransmit uint16 = 5
+			options := &webrtc.DataChannelInit{
+				Ordered: &order,
+				//MaxPacketLifeTime: &lefttime,
+				MaxRetransmits: &retransmit,
+			}
+			if p.dataChannel, err = p.peerConnection.CreateDataChannel("whiteboard", options); err != nil {
+				panic(err)
+			}
+			p.dataChannel.OnError(func(err error) {
+				fmt.Printf("sub data channel got an error:%e\n", err)
+			})
+			p.dataChannel.OnClose(func() {
+				fmt.Println("sub data channel has closed")
+			})
+			p.dataChannel.OnOpen(func() {
+				fmt.Println("sub data channel has opened")
+			})
+			p.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+				// Don't sending to record server, because it has already been sended on original pod
+				p.parent.OnReceivedAppData(p.userid, p.peerid, msg.Data, len(msg.Data))
+				fmt.Printf("%s <- %s:%s ### recv channel data len:%d\n", p.userid, p.remoteuserid, p.peerid, len(msg.Data))
+			})
+		}
+	}
+
+	// Create an offer
+	offer, err := p.peerConnection.CreateOffer(nil)
+	if err != nil {
+		panic(err)
+	}
+	if err := p.peerConnection.SetLocalDescription(offer); err != nil {
+		panic(err)
+	}
+
+	msg, err := json.Marshal(map[string]interface{}{
+		LabelCmd:       CmdFakeOffer,
+		LabelClusterId: p.conf.Clusterid,
+		LabelPodId:     p.conf.Uuid,
+		LabelRoomId:    p.parent.parent.roomid,
+		LabelSessID:    userID,
+		// LabelSrcSessID: remoteUserID,
+		LabelPeerID: peerid,
+		LabelSDP:    offer.SDP,
+	})
+	if err != nil {
+		fmt.Println("generate json error:", err)
+	}
+	PublishMessage2CrossClusterPod(podid, string(msg))
+}
+
+// HandleFakeOffer
+func (p *peer) HandleFakeOffer(j jsonparser) {
+	podid := GetValue(j, LabelPodId)
+	userID := GetValue(j, LabelSessID)
+	peerid := GetValue(j, LabelPeerID)
+	strSdp := GetValue(j, LabelSDP)
+
+	mapSdp := map[string]interface{}{
+		"type": "offer",
+		"sdp":  strSdp,
+	}
+	offer := webrtc.SessionDescription{}
+	strJSON, err := json.Marshal(mapSdp)
+	if err != nil {
+		panic(err)
+	}
+	err = json.Unmarshal(strJSON, &offer)
+	if err != nil {
+		panic(err)
+	}
+
+	if err = p.setSsrcFromSDP(&offer); err != nil {
+		panic(err)
+	}
+
+	// Set the remote SessionDescription
+	if err = p.peerConnection.SetRemoteDescription(offer); err != nil {
+		panic(err)
+	}
+	go func() { p.remoteSdpReceived <- 0 }()
+
+	// Create answer
+	answer, err := p.peerConnection.CreateAnswer(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	if err = p.peerConnection.SetLocalDescription(answer); err != nil {
+		panic(err)
+	}
+	p.SetCachedCandidates()
+
+	msg, err := json.Marshal(map[string]interface{}{
+		LabelCmd:       CmdFakeAnswer,
+		LabelClusterId: p.conf.Clusterid,
+		LabelPodId:     p.conf.Uuid,
+		LabelRoomId:    p.parent.parent.roomid,
+		LabelSessID:    userID,
+		LabelSrcSessID: userID,
+		LabelPeerID:    peerid,
+		LabelSDP:       answer.SDP,
+	})
+	if err != nil {
+		fmt.Println("generate json error:", err)
+	}
+	PublishMessage2CrossClusterPod(podid, string(msg))
+}
+
+// HandleFakeAnswer
+func (p *peer) HandleFakeAnswer(j jsonparser) {
+	strsdp := GetValue(j, LabelSDP)
+
+	mapSdp := map[string]interface{}{
+		"type": "answer",
+		"sdp":  strsdp,
+	}
+	answer := webrtc.SessionDescription{}
+
+	strJSON, err := json.Marshal(mapSdp)
+	if err != nil {
+		fmt.Println("")
+		panic(err)
+	}
+	if err = json.Unmarshal(strJSON, &answer); err != nil {
+		panic(err)
+	}
+
+	// Set the remote SessionDescription
+	if err := p.peerConnection.SetRemoteDescription(answer); err != nil {
+		panic(err)
+	}
+	go func() { p.remoteSdpReceived <- 0 }()
+	p.SetCachedCandidates()
+}
+
 func (p *peer) IsReady() bool {
 	return p.isReady
 }
 
-func (p *peer) SendFir() {
+func (p *peer) ShouldNotify() bool {
+	if p.shouldNotify {
+		p.shouldNotify = false
+		return true
+	}
+	return p.shouldNotify
+}
+
+/* func (p *peer) sendFir() {
 	if p.role != 1 {
 		fmt.Println("illegal rtcp fir request")
 		return
 	}
 
-	if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.FullIntraRequest{MediaSSRC: uint32(p.getVideoSsrc())}}); rtcpSendErr != nil {
+	if rtcpSendErr := p.peerConnection.WriteRTCP(
+		[]rtcp.Packet{&rtcp.FullIntraRequest{MediaSSRC: uint32(p.getVideoSsrc())}}); rtcpSendErr != nil {
 		fmt.Println(rtcpSendErr)
+	}
+} */
+
+func (p *peer) RequestKeyframe() {
+	if p.filter != nil && p.isReady {
+		p.filter.TryRequestKeyframe()
 	}
 }
 
-func (p *peer) SendPli() {
+func (p *peer) sendPli() {
 	if p.role != 1 {
 		fmt.Println("illegal rtcp pli request")
 		return
 	}
 
-	if rtcpSendErr := p.peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(p.getVideoSsrc())}}); rtcpSendErr != nil {
+	if rtcpSendErr := p.peerConnection.WriteRTCP(
+		[]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(p.getVideoSsrc())}}); rtcpSendErr != nil {
 		fmt.Println(rtcpSendErr)
 	}
 }
@@ -540,10 +953,27 @@ func (p *peer) deliverVideoData(buff []byte, len int) {
 func (p *peer) deliverAppData(buff []byte, len int) {
 	if p.dataChannel != nil {
 		err := p.dataChannel.SendText(string(buff))
+		fmt.Printf("%s %s:%s ### send channel data len:%d\n", p.userid, p.remoteuserid, p.peerid, len)
 		if err != nil {
-			panic(err)
+			fmt.Printf("role:%d %s-%s ### send channel data failed:%e\n", p.role, p.userid, p.peerid, err)
 		}
 	}
+}
+
+func (p *peer) SetAudioCodec(codec webrtc.RTPCodecParameters) {
+	p.audioCodec = codec
+}
+
+func (p *peer) SetVideoCodec(codec webrtc.RTPCodecParameters) {
+	p.videoCodec = codec
+}
+
+func (p *peer) GetAudioCodec() webrtc.RTPCodecParameters {
+	return p.audioCodec
+}
+
+func (p *peer) GetVideoCodec() webrtc.RTPCodecParameters {
+	return p.videoCodec
 }
 
 func (p *peer) isAudioSsrc(s int) bool {
@@ -576,6 +1006,9 @@ func (p *peer) setSsrcFromSDP(remoteSdp *webrtc.SessionDescription) error {
 	if err != nil {
 		return err
 	}
+	p.audiossrc.Init()
+	p.videossrc.Init()
+	p.appssrc.Init()
 	for _, value := range offersdp.MediaDescriptions {
 		if value.MediaName.Media == "audio" {
 			for _, a := range value.Attributes {
@@ -640,4 +1073,53 @@ func (p *peer) setSsrcFromSDP(remoteSdp *webrtc.SessionDescription) error {
 		}
 	}
 	return nil
+}
+
+func (p *peer) CheckIceInfo(typ, ip string, port uint16) {
+	<-p.remoteSdpReceived
+
+	lDesc := p.peerConnection.LocalDescription()
+	rDesc := p.peerConnection.RemoteDescription()
+	if lDesc == nil || rDesc == nil {
+		return
+	}
+	lSdp, err1 := lDesc.Unmarshal()
+	rSdp, err2 := rDesc.Unmarshal()
+	if err1 != nil || err2 != nil {
+		panic("")
+	}
+
+	var lUfrag, rUfrag string
+	for _, m := range lSdp.MediaDescriptions {
+		if m.MediaName.Media == "video" {
+			ufrag, haveUfrag := m.Attribute("ice-ufrag")
+			if haveUfrag {
+				lUfrag = ufrag
+				break
+			}
+		}
+	}
+
+	for _, m := range rSdp.MediaDescriptions {
+		if m.MediaName.Media == "video" {
+			ufrag, haveUfrag := m.Attribute("ice-ufrag")
+			if haveUfrag {
+				rUfrag = ufrag
+				break
+			}
+		}
+	}
+
+	msg, err := json.Marshal(map[string]interface{}{
+		"action":     "iceinfo",
+		"local_ice":  lUfrag,
+		"remote_ice": rUfrag,
+		"protocol":   "udp",
+		"local_ip":   ip,
+		"local_port": port,
+	})
+	if err != nil {
+		fmt.Println("generate json error:", err)
+	}
+	BroadcastMessage2Proxy(string(msg))
 }

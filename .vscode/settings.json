@@ -1,4 +1,5 @@
 {
     "go.gopath": "${workspaceFolder}/third",
     "commentTranslate.targetLanguage": "zh-CN",
+    "git.ignoreLimitWarning": true,
 }

@@ -13,6 +13,14 @@ func GetValue(m map[string]interface{}, key string) string {
 	return ""
 }
 
+// GetValue is
+func GetIntValue(m map[string]interface{}, key string) float64 {
+	if v, ok := m[key]; ok {
+		return v.(float64)
+	}
+	return 0
+}
+
 // CreateJSONParser is
 func CreateJSONParser(str []byte) (m map[string]interface{}, err error) {
 	jsonobj := map[string]interface{}{}

@@ -19,14 +19,19 @@ type mqttonnection struct {
 }
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	fmt.Println("mqtt Connected")
-	if token := client.Subscribe("pion-MediaServer", 2, nil); token.Wait() && token.Error() != nil {
+	fmt.Println("mqtt connected")
+	conf, err := GetConfig()
+	if err != nil {
+		return
+	}
+	if token := client.Subscribe(conf.Mqtt_topic, 2, nil); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
+	fmt.Printf("mqtt subscribe %s\n", conf.Mqtt_topic)
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
-	fmt.Println("mqtt connect lost: ", err)
+	fmt.Println("mqtt connection lost: ", err)
 }
 
 //CreateMqtt is
@@ -39,17 +44,20 @@ func (conn *mqttonnection) Init() {
 	mqtt.CRITICAL = log.New(os.Stdout, "[CRIT] ", 0)
 	mqtt.WARN = log.New(os.Stdout, "[WARN]  ", 0)
 	//mqtt.DEBUG = log.New(os.Stdout, "[DEBUG] ", 0)
+	config, err := GetConfig()
+	if err != nil {
+		fmt.Println("mqtt init failed")
+		return
+	}
 
-	var ip = "gomqtt.offcncloud.com"
-	var port = 1883
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", ip, port))
-	opts.SetClientID("media_server")
-	opts.SetUsername("admin")
-	opts.SetPassword("public")
+	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", config.Mqttip, config.Mqttport))
+	opts.SetClientID(config.Uuid)
+	opts.SetUsername(config.Mqttuser)
+	opts.SetPassword(config.Mqttpwd)
 
 	opts.SetConnectRetryInterval(2 * time.Second)
-	opts.SetAutoReconnect(true)
+	opts.SetConnectRetry(true)
 	opts.SetMaxReconnectInterval(5 * time.Second)
 	opts.SetKeepAlive(30 * time.Second)
 	opts.SetPingTimeout(1 * time.Second)
@@ -61,10 +69,6 @@ func (conn *mqttonnection) Init() {
 	})
 	opts.SetOnConnectHandler(connectHandler)
 	opts.SetConnectionLostHandler(connectLostHandler)
-	opts.SetReconnectingHandler(func(client mqtt.Client, op *mqtt.ClientOptions) {
-		fmt.Println("reconnecting handler")
-	})
-	opts.SetResumeSubs(true)
 	conn.client = mqtt.NewClient(opts)
 	if token := conn.client.Connect(); token.Wait() && token.Error() != nil {
 		panic(token.Error())

@@ -5,22 +5,22 @@ let bJoind = false;
 let bPushAuthed = false;
 let bHeartbeatStarted = false;
 let evnet_callback_;
-let sessionid_;
+let userid_;
 let keepalive_timer_id_;
 let request_timer_id_;
 let mqtt_client;
 let nickname_ ;
 let roomid_;
-const mqtt_topic_ = "pion-MediaServer";// window.localStorage.getItem('mqtt_topic');
+let mqtt_topic_;
 
-function mqtt_init(clientid, callback) {
-  sessionid_ = clientid;
+function mqtt_init(callback) {
+  mqttid = generateUUID();
   if (typeof callback === 'function') {
     evnet_callback_ = callback;
   }
   const options = {
     keepalive: 30,
-    clientId: sessionid_,
+    clientId: mqttid,
     protocolId: 'MQTT',
     protocolVersion: 4,
     clean: true,
@@ -36,11 +36,8 @@ function mqtt_init(clientid, callback) {
     password: 'public',
     rejectUnauthorized: false
   };
-  const connectUrl = 'wss://gomqtt.offcncloud.com:8084/mqtt';
+  const connectUrl = 'wss://test.nb666.com:8084/mqtt';
   mqtt_client = mqtt.connect(connectUrl, options);
-
-  // subscribe topic
-  mqtt_client.subscribe(sessionid_);
 
   //  event monitor
   mqtt_client.on('connect', (packet) => {
@@ -74,17 +71,22 @@ function generateUUID() {
 }
 
 //  regist to media server
-async function join2ms(nickname, roomid) {
+async function join2ms(nickname, clientid, roomid, mqtt_topic) {
+  // subscribe response topic
+  userid_ = clientid;
+  mqtt_client.subscribe(userid_);
+
   nickname_ = nickname;
   roomid_ = roomid;
+  mqtt_topic_ = mqtt_topic;
   console.log('start join room...');
   const browserType = getBrowserType();
   const request={
-    type: 'login',
+    cmd: 'login',
     roomid: roomid_,
-    sessionid: sessionid_,
+    userid: userid_,
     username: nickname_,
-    devtype: 'OffcnLiveMC/web',
+    devtype: 'chrome/web',
     subtype: browserType,
     version: '0.0.1'
   };
@@ -96,8 +98,8 @@ async function join2ms(nickname, roomid) {
 //  keepalive
 async function keepAlive() {
   const request={
-    type: 'heartbeat',
-    sessionid: sessionid_,
+    cmd: 'heartbeat',
+    userid: userid_,
     roomid: roomid_
   };
   const jsonText=JSON.stringify(request);
@@ -108,8 +110,8 @@ async function keepAlive() {
 //  try start publish stream to media server
 async function authPush(streamid) {
   const request={
-    type: 'publish',
-    sessionid: sessionid_,
+    cmd: 'publish',
+    userid: userid_,
     roomid: roomid_,
     peerid: streamid
   };
@@ -121,8 +123,8 @@ async function authPush(streamid) {
 //  unpublish stream
 async function unpush(sid) {
   const request={
-    type: 'unpush',
-    sessionid: sessionid_,
+    cmd: 'unpush',
+    userid: userid_,
     roomid: roomid_,
     peerid: sid
   };
@@ -134,8 +136,8 @@ async function unpush(sid) {
 //  offer for publish stream
 async function offer(sid, sdp) {
   const request={
-    type: 'offer',
-    sessionid: sessionid_,
+    cmd: 'offer',
+    userid: userid_,
     roomid: roomid_,
     peerid: sid,
     sdp: sdp
@@ -148,10 +150,10 @@ async function offer(sid, sdp) {
 //  answer for subscribe stream
 async function answer(ssid, pid, sdp) {
   const request={
-    type: 'answer',
+    cmd: 'answer',
     roomid: roomid_,
-    sessionid: sessionid_,
-    srcsessionid: ssid,
+    userid: userid_,
+    remoteuserid: ssid,
     peerid: pid,
     sdp: sdp
   };
@@ -163,9 +165,9 @@ async function answer(ssid, pid, sdp) {
 //  answer for subscribe stream
 async function candidate(pid,candi) {
   const request={
-    type: 'candidate',
+    cmd: 'candidate',
     roomid: roomid_,
-    sessionid: sessionid_,
+    userid: userid_,
     peerid: pid,
     candidate: candi,
   };
@@ -177,10 +179,10 @@ async function candidate(pid,candi) {
 //  answer for subscribe stream
 async function sub_candidate(ssid,pid,candi) {
   const request={
-    type: 'candidate',
+    cmd: 'candidate',
     roomid: roomid_,
-    sessionid: sessionid_,
-    srcsessionid: ssid,
+    userid: userid_,
+    remoteuserid: ssid,
     peerid: pid,
     candidate: candi,
   };
@@ -192,10 +194,10 @@ async function sub_candidate(ssid,pid,candi) {
 //  subscribe stream
 async function sub(clientid, streamid) {
   const request={
-    type: 'sub',
+    cmd: 'sub',
     roomid: roomid_,
-    sessionid: sessionid_,
-    srcsessionid:clientid,
+    userid: userid_,
+    remoteuserid:clientid,
     peerid: streamid
   };
   const jsonText=JSON.stringify(request);
@@ -206,9 +208,9 @@ async function sub(clientid, streamid) {
 //  stop subscribe stream
 async function unsub(clientid, streamid) {
   const request={
-    type: 'unsub',
+    cmd: 'unsub',
     roomid: roomid_,
-    sessionid: sessionid_,
+    userid: userid_,
     peerid: streamid,
   };
   const jsonText=JSON.stringify(request);
@@ -218,32 +220,32 @@ async function unsub(clientid, streamid) {
 
 function responseHandler(msg) {
   const json = JSON.parse(msg);
-  if (json.type == 'login') {
+  if (json.cmd == 'login') {
     joinHandler(json);
-  } else if (json.type == 'pub') {
+  } else if (json.cmd == 'pub') {
     pubHandler(json);
-  } else if (json.type == 'unpub') {
+  } else if (json.cmd == 'unpub') {
     unpubHandler(json);
-  } else if (json.type == 'heartbeat') {
+  } else if (json.cmd == 'heartbeat') {
     heartbeatHandler(json);
-  } else if (json.type == 'publish') {
+  } else if (json.cmd == 'publish') {
     pushHandler(json);
-  } else if (json.type == 'offer') {
+  } else if (json.cmd == 'offer') {
     offerHandler(json);
-  } else if (json.type == 'answer') {
+  } else if (json.cmd == 'answer') {
     answerHandler(json);
-  } else if (json.type == 'candidate') {
+  } else if (json.cmd == 'candidate') {
     candidateHandler(json);
-  } else if (json.type == 'unpush') {
+  } else if (json.cmd == 'unpush') {
     unpushHandler(json);
-  } else if (json.type == 'sub') {
+  } else if (json.cmd == 'sub') {
     subHandler(json);
-  } else if (json.type == 'unsub') {
+  } else if (json.cmd == 'unsub') {
     unsubHandler(json);
-  } else if (json.type == 'logout') {
+  } else if (json.cmd == 'logout') {
     logoutHandler(json);
   } else {
-    console.log('unknow message：', json.type);
+    console.log('unknow message：', json.cmd);
   }
 }
 
@@ -265,7 +267,7 @@ function joinHandler(msg) {
 }
 
 function pubHandler(msg) {
-  console.log('%s-%s published', msg.sessionid, msg.peerid);
+  console.log('%s-%s published', msg.userid, msg.peerid);
   const event = {
     type: 'pub',
     info: msg
@@ -274,7 +276,7 @@ function pubHandler(msg) {
 }
 
 function unpubHandler(msg) {
-  console.log('%s-%s unpublished', msg.sessionid, msg.peerid);
+  console.log('%s-%s unpublished', msg.userid, msg.peerid);
   const event = {
     type: 'unpub',
     info: msg
@@ -287,7 +289,7 @@ function heartbeatHandler(msg) {
     console.log('not joined, need to join first');
     //  should stop keepalive timer
     clearInterval(keepalive_timer_id_);
-    join2ms(nickname_, roomid_);
+    join2ms(nickname_, userid_, roomid_, mqtt_topic_);
     bJoind = false;
 
     //  TODO: need to clean other flags and streams.

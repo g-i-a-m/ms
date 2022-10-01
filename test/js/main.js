@@ -16,6 +16,7 @@ const stoppushdocButton = document.getElementById('stoppushdocButton');
 
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
+const remoteAudio = document.getElementById('remoteAudio');
 const docVideo = document.getElementById('docVideo');
 
 const audio_input_devices = document.getElementById('audio_input_devices');
@@ -25,7 +26,7 @@ const audio_output_devices = document.getElementById('audio_output_devices');
 joinButton.addEventListener('click', join_room);
 
 pushButton.addEventListener('click', e => publish_local_stream('camera', localVideo));
-pullButton.addEventListener('click', e => subscribe_remote_stream('', 'camera', remoteVideo));
+pullButton.addEventListener('click', e => subscribe_remote_stream('', 'camera', remoteVideo, remoteAudio));
 pushdocButton.addEventListener('click', e => publish_screenshare('window', docVideo));
 
 stopPublishButton.addEventListener('click', e => unpublish_local_stream('camera'));

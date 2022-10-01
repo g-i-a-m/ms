@@ -5,9 +5,17 @@
 // mqtt_moudle.setAttribute('src', 'js/mqttprocesser.js');
 // document.body.appendChild(mqtt_moudle);
 
+var clientid_="";
+var origin_clientid_="";
+var peerid_; //for data channel search
+const static_clientid = document.getElementById('clientid');
 const audio_input_select = document.getElementById('audio_input_devices');
 const video_capture_select = document.getElementById('video_capture_devices');
-
+const checkbox_grcid = document.getElementById('check_grcid');
+const checkbox = document.getElementById('check_cache');
+checkbox_grcid.addEventListener("click", CheckboxGrcidClickedHandler);
+checkbox.addEventListener("click", CheckboxClickedHandler);
+InitLoadCache();
 let mqtt_connected_ = false; //  mqtt connect status
 let joined_room_ = false; //  join room status
 const usermap_ = new Map(); //  users set
@@ -50,6 +58,7 @@ function textareaHandler(e) {
 function updateRecvBuffer(type, data) {
   var recvbuf = document.getElementById("text-recvbuf");
   recvbuf.value = recvbuf.value + type + ":" + data + "\n";
+  recvbuf.scrollTop = recvbuf.scrollHeight;
 }
 
 Array.prototype.indexOf = function(val) {
@@ -106,14 +115,49 @@ function deviceChange(e) {
   usercallback(event);
 }
 
-clientid_ = generateUUID(); //'mqttjs_' + Math.random().toString(16).substr(2, 8);
-var peerid_; //for data channel search
-mqtt_init(clientid_, mqttEventCallback);
+function InitLoadCache() {
+  id = localStorage.getItem('ms_demo_cache_clientid');
+  if (id!=null && id.length!=0) {
+    static_clientid.textContent = clientid_ = origin_clientid_ = id;
+    checkbox.checked = true;
+  }
+  else {
+    static_clientid.textContent = clientid_ = origin_clientid_ = generateUUID(); //'mqttjs_' + Math.random().toString(16).substr(2, 8);
+  }
+}
+
+function CheckboxGrcidClickedHandler() {
+  if (!checkbox_grcid.checked) {
+    static_clientid.textContent = clientid_ = origin_clientid_;
+  }
+  else {
+    static_clientid.textContent = clientid_ = generateUUID();
+  }
+}
+
+function CheckboxClickedHandler() {
+  if (!checkbox.checked) {
+    if (window.confirm("you sure want to remote cached clientid? dummies")) {
+      localStorage.removeItem('ms_demo_cache_clientid');
+    }
+  }
+  else {
+    if (window.confirm("you sure want to cache the clientid?")) {
+      localStorage.setItem('ms_demo_cache_clientid',clientid_);
+    }
+  }
+}
+
+
+mqtt_init(mqttEventCallback);
 
 //  join the room of media server
 async function join_room() {
   if (mqtt_connected_) {
-    join2ms(window.document.getElementById('edit-nickname').value,window.document.getElementById('edit-roomid').value);
+    var nickname = window.document.getElementById('edit-nickname').value;
+    var roomid = window.document.getElementById('edit-roomid').value;
+    var topic = window.document.getElementById('edit-cluster').value;
+    join2ms(nickname, clientid_, roomid, topic);
   } else {
     console.log('not connect to mqtt, please try join room later...');
   }
@@ -187,13 +231,13 @@ async function unpublish_screenshare(peerid) {
 }
 
 //  subscribe audio stream
-async function subscribe_remote_stream(userid, peerid, videolable) {
+async function subscribe_remote_stream(userid, peerid, videolable, audiolable) {
   if (mqtt_connected_ && joined_room_) {
     for (const [key, value] of usermap_) {
       if (key!=clientid_) {
         for (let i =0; i < value.length; i++) {
           if (value[i]===peerid) {
-            subscribe(key, value[i], videolable);
+            subscribe(key, value[i], videolable, audiolable);
             break;
           }
         }
@@ -260,7 +304,7 @@ async function mqttEventCallback(event) {
     //  TODO:do something
   } else if (event.type=='join_succeed') {
     joined_room_ = true;
-    window.document.getElementById('clientid').textContent = sessionid_;
+    static_clientid.textContent = userid_;
   } else if (event.type=='join_failed') {
     joined_room_ = false;
   } else if (event.type=='pub') {
@@ -320,7 +364,7 @@ async function startPublishOffer(msg, peerid) {
       //  peerOpt = {sdpSemantics: 'plan-b'};
       peerOpt = {
         iceServers: [{
-            urls: window.document.getElementById('edit-stunurl').value,// "turn:node.offcncloud.com:9900",
+            urls: window.document.getElementById('edit-stunurl').value,// "turn:node.nb666.com:9900",
             username: window.document.getElementById('edit-stun-userid').value,// "ctf",
             credential: window.document.getElementById('edit-stun-pwd').value,// "ctf123"
         }],
@@ -330,13 +374,16 @@ async function startPublishOffer(msg, peerid) {
     } else {
       const media_option = {
         audio: {
+          // contentType: "audio/opus",
           noiseSuppression: true,
           echoCancellation: true,
           deviceId: audio_input_select.options[audio_input_select.selectedIndex].value
         },
         video: {
-          width: 640,
-          height: 480,
+          // contentType: "video/webm;codec=h264",
+          width: 320,
+          height: 180,
+          bitrate: 320000,
           frameRate: 15,
           deviceId: video_capture_select.options[video_capture_select.selectedIndex].value
         }
@@ -344,7 +391,7 @@ async function startPublishOffer(msg, peerid) {
       stream = await navigator.mediaDevices.getUserMedia(media_option);// {audio: true, video: true}
       peerOpt = {
         iceServers: [{
-          urls: window.document.getElementById('edit-stunurl').value,// "turn:node.offcncloud.com:9900",
+          urls: window.document.getElementById('edit-stunurl').value,// "turn:node.nb666.com:9900",
           username: window.document.getElementById('edit-stun-userid').value,// "ctf",
           credential: window.document.getElementById('edit-stun-pwd').value,// "ctf123"
         }],
@@ -357,7 +404,7 @@ async function startPublishOffer(msg, peerid) {
     alert(`getUserMedia() error: ${e.name}`);
   }
   
-  const key = msg.sessionid+'_'+peerid;
+  const key = msg.userid+'_'+peerid;
   if (publish_map_.has(key)) {
     publish_map_.get(key).video_wnd.srcObject = stream;
   } else {
@@ -397,14 +444,38 @@ async function startPublishOffer(msg, peerid) {
 
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
 
-  stream.getTracks().forEach(track => peer.addTrack(track, stream));
+  stream.getTracks().forEach(function(track){
+    sender = peer.addTrack(track, stream);
+    if (track.kind == 'video') {
+      param = sender.getParameters();
+      if (!param.encodings) {
+        param.encodings = [{}];
+        param.encodings[0].scaleResolutionDownBy = 1.0;
+        param.encodings[0].maxBitrate = 320000;
+      } else {
+        param.encodings.forEach(function(encoding){
+          encoding.maxBitrate = 320000;
+        });
+      }
+      console.log("set maxBitrate = 320000");
+      sender.setParameters(param);
+      /* if (sender.getParameters().encodings[0].scaleResolutionDownBy == 1) {
+        await sender.track.applyConstraints({height});
+      } */
+    }
+  });
 
   try {
     const offer_sdp = await peer.createOffer({offerToReceiveAudio: 1, offerToReceiveVideo: 1});
+    //set min bitrate
+    offer_sdp.sdp = BandwidthHandler.setVideoBitrates(offer_sdp.sdp, {
+      min: 256, //256 kbits
+      max: 1000 //1000 kbits
+    });
     peer.setLocalDescription(offer_sdp);
     offer(peerid, offer_sdp.sdp);
   } catch (e) {
-    console.log('Failed to create sdp: ${e.toString()}');
+    console.log('Failed to create sdp: ',e.toString());
   }
 }
 
@@ -415,7 +486,7 @@ async function publishAnswerHandler(msg) {
   };
 
   try {
-    const key = msg.sessionid+'_'+msg.peerid;
+    const key = msg.userid+'_'+msg.peerid;
     const peer = publish_map_.get(key).peer_conn;
     peer.setRemoteDescription(answer_sdp);
   } catch (e) {
@@ -424,22 +495,22 @@ async function publishAnswerHandler(msg) {
 }
 
 function handlePub(msg) {
-  if (!usermap_.has(msg.sessionid)) {
+  if (!usermap_.has(msg.userid)) {
     const list = [];
     list.push(msg.peerid);
-    usermap_.set(msg.sessionid, list);
+    usermap_.set(msg.userid, list);
   } else {
-    usermap_.get(msg.sessionid).push(msg.peerid);
+    usermap_.get(msg.userid).push(msg.peerid);
   }
 }
 
 function handleUnpub(msg) {
-  if (usermap_.has(msg.sessionid)) {
-    usermap_.get(msg.sessionid).remove(msg.peerid);
+  if (usermap_.has(msg.userid)) {
+    usermap_.get(msg.userid).remove(msg.peerid);
   }
 }
 
-function subscribe(userid, peerid, videolable) {
+function subscribe(userid, peerid, videolable, audiolable) {
   if (subscribe_map_.has(userid+'_'+peerid)) {
     console.log(peerid+' stream has been subscribed and would be resubscribed now');
     stopPull(key, peerid);
@@ -450,7 +521,8 @@ function subscribe(userid, peerid, videolable) {
   const node={
     peer_conn: null,
     sub_data_channel: null,
-    video_wnd: videolable
+    video_wnd: videolable,
+    audio_wnd: audiolable
   };
   node.peer_conn = peer;
   subscribe_map_.set(userid+'_'+peerid, node);
@@ -470,7 +542,20 @@ function subscribe(userid, peerid, videolable) {
     node.sub_data_channel.onclose = handleChannelStatusChange;
   }
   peer.addEventListener('iceconnectionstatechange', e => onIceStateChange(peer, e));
-  peer.addEventListener('track', e => gotRemoteStream(userid, peerid, e));
+  peer.ontrack = event => {
+    console.log('%s_%s received remote %s track', userid, peerid, event.track.kind, event.streams);
+    if (event.track.kind == 'audio') {
+      rw = subscribe_map_.get(userid+'_'+peerid).audio_wnd;
+      rw.srcObject = event.streams[0];
+      rw.autoplay = true;
+    }
+    else if (event.track.kind == 'video') {
+      rw = subscribe_map_.get(userid+'_'+peerid).video_wnd;
+      rw.srcObject = event.streams[0];
+      rw.autoplay = true;
+    }
+    
+  };
   sub(userid, peerid);
 }
 
@@ -491,7 +576,7 @@ async function subOfferHandler(msg) {
     sdp: msg.sdp,
     type: 'offer'
   };
-  const key = msg.srcsessionid+'_'+msg.peerid;
+  const key = msg.remoteuserid+'_'+msg.peerid;
   const peer = subscribe_map_.get(key).peer_conn;
   peer.setRemoteDescription(offer_sdp);
   stopPullButton.disabled = false;
@@ -502,23 +587,15 @@ async function subOfferHandler(msg) {
     };
     const answersdp = await peer.createAnswer(answerOptions);
     peer.setLocalDescription(answersdp);
-    answer(msg.srcsessionid, msg.peerid, answersdp.sdp);
+    answer(msg.remoteuserid, msg.peerid, answersdp.sdp);
   } catch (e) {
     console.log(`Failed to create sdp: ${e.toString()}`);
   }
 }
 
 async function handleRemoteCandi(msg) {
-  var candiInit = JSON.parse(msg.candidate);
-  const candi = new RTCIceCandidate(candiInit);
+  const candi = new RTCIceCandidate(msg.candidate);
   await peer.addIceCandidate(candi);
-}
-
-function gotRemoteStream(userid, peerid, e) {
-  if (remoteVideo.srcObject !== e.streams[0]) {
-    subscribe_map_.get(userid+'_'+peerid).video_wnd.srcObject = e.streams[0];
-    console.log('%s_%s received remote stream', userid, peerid);
-  }
 }
 
 function onIceStateChange(peer, event) {

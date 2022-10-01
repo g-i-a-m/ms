@@ -5,13 +5,38 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug MS",
+            "name": "阿波罗13号",
             "type": "go",
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}",
-            "env": {},
+            "env": {
+                "SLB_IP": "",//"192.168.10.202",
+                "MQTT_TOPIC": "阿波罗13号",
+                "TEST_CLUSTER_ID": "11bab314-0a17-0a80-ac48-f135b0ad2ea0",
+            },
             "args": [],
+            "internalConsoleOptions": "openOnSessionStart"
+        },
+        {
+            "name": "嫦娥5号",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}",
+            "env": {
+                "SLB_IP": "",//"192.168.10.115",
+                "MQTT_TOPIC": "嫦娥5号",
+                "TEST_CLUSTER_ID": "11bab314-0a17-0a80-ac48-f135b0ad2ea0",
+            },
+            "args": [],
+            "internalConsoleOptions": "openOnSessionStart"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "我全都要",
+            "configurations": ["阿波罗13号" , "嫦娥5号"]
         }
     ]
 }

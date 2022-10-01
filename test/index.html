@@ -11,7 +11,7 @@
 
     <meta charset="utf-8">
     <meta http-equiv="x-dns-prefetch-control" content="on">
-    <link rel="dns-prefetch" href="dev-mqq.offcncloud.com">
+    <link rel="dns-prefetch" href="dev-mqq.nb666.com">
     <link rel="shortcut icon" href="#"/>
     <meta name="description" content="WebRTC code samples">
     <meta name="viewport" content="width=device-width, user-scalable=yes, initial-scale=1, maximum-scale=1">
@@ -31,22 +31,30 @@
 <header>
     <p style="margin-left:120px">
         <span style="margin-left:40px">client id:</span><strong style="width:200px" id="clientid"></strong>
-        <span style="margin-left:40px">nickname:</span><input style="width: 80px" type="text" placeholder="input nick name" value="Allison" id="edit-nickname"></input>
-        <span style="margin-left:40px">room id:</span><input style="width: 80px" type="text" placeholder="input room id" value="Catherine" id="edit-roomid"></input>
+        <span style="margin-left:40px">generate random client id</span><input type="checkbox" id="check_grcid"></input>
+        <span style="margin-left:40px">Cache client id</span><input type="checkbox" id="check_cache"></input>
     </p>
     <p style="margin-left:120px">
-        <span style="margin-left:40px">stun url:</span><input style="width:200px;" type="text" placeholder="input stun url" value="turn:node.offcncloud.com:9900" id="edit-stunurl"></input>
+        <span style="margin-left:40px">nickname:</span><input style="width: 80px" type="text" placeholder="input nick name" value="Allison" id="edit-nickname"></input>
+        <span style="margin-left:40px">room id:</span><input style="width: 80px" type="text" placeholder="input room id" value="10" id="edit-roomid"></input>
+    </p>
+    <p style="margin-left:120px">
+        <span style="margin-left:40px">stun url:</span><input style="width:200px;" type="text" placeholder="input stun url" value="turn:node.nb666.com:9900" id="edit-stunurl"></input>
         <span style="margin-left:40px">stun user:</span><input style="width: 60px" type="text" placeholder="input user id" value="ctf" id="edit-stun-userid"></input>
         <span style="margin-left:40px">stun password:</span><input style="width: 60px" type="text" placeholder="input user password" value="ctf123" id="edit-stun-pwd"></input>
+    </p>
+    <p style="margin-left:120px">
+        <span style="margin-left:40px">cluster test option:</span><input style="width:200px;" type="text" placeholder="input mqtt topic" value="阿波罗13号" id="edit-cluster"></input>
     </p>
 </header>
 
 <body>
 
 <div id="container">
-    <video id="localVideo" style="width: 240px;height: 180px;" playsinline autoplay muted></video>
-    <video id="remoteVideo" style="width: 240px;height: 180px;" playsinline autoplay></video>
-    <video id="docVideo" style="width: 240px;height: 180px;" playsinline autoplay muted></video>
+    <video id="localVideo" style="width: 240px;height: 180px;" autoplay muted></video>
+    <video id="remoteVideo" style="width: 240px;height: 180px;" autoplay></video>
+    <audio id="remoteAudio" style="width: 240px;height: 180px;" autoplay></audio>
+    <video id="docVideo" style="width: 240px;height: 180px;" autoplay muted></video>
 
     <div class="box">
         <button id="joinButton">join</button>
@@ -86,6 +94,7 @@
 <script src="https://webrtc.github.io/adapter/adapter-latest.js" async></script>
 <script src="js/mqtt.min.js"></script>
 <!--script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script-->
+<script src="js/BandwidthHandler.js"></script>
 <script src="js/mqttprocesser.js"></script>
 <script src="js/ms_client.js"></script>
 <script src="js/main.js" async></script>
