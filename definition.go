@@ -35,6 +35,7 @@ const (
 	LabelClusterId = "clusterid"
 	LabelPodId     = "podid"
 	LabelSessID    = "userid"
+	LabelUserName  = "username"
 	LabelSrcSessID = "remoteuserid"
 	LabelPeerID    = "peerid"
 	LabelSDP       = "sdp"

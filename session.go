@@ -15,6 +15,7 @@ type session struct {
 	subsmux              sync.RWMutex
 	conf                 *Config
 	userid               string
+	username             string
 	clusterid            string
 	podid                string
 	origin               bool
@@ -28,10 +29,11 @@ type session struct {
 }
 
 // CreateSession is create a session object
-func CreateSession(r *room, id string, c *Config, f func(topic, msg string)) *session {
+func CreateSession(r *room, id, name string, c *Config, f func(topic, msg string)) *session {
 	return &session{
 		conf:                 c,
 		userid:               id,
+		username:             name,
 		origin:               true,
 		publishers:           make(map[string]*peer),
 		subscribers:          make(map[string]*peer),
@@ -194,6 +196,7 @@ func (sess *session) HandleMessage(j jsonparser) {
 				LabelRoomId:    sess.parent.roomid,
 				LabelSessID:    peer.userid,
 				LabelPeerID:    peer.peerid,
+				LabelUserName:  sess.username,
 			})
 			if err != nil {
 				fmt.Println("generate json error:", err)
@@ -326,7 +329,7 @@ func (sess *session) OnIceReady(role int, sid, ssid, pid string) {
 		sess.pubsmux.RLock()
 		defer sess.pubsmux.RUnlock()
 		if _, ok := sess.publishers[pid]; ok {
-			go sess.parent.OnPublisherReady(sid, pid)
+			go sess.parent.OnPublisherReady(sid, sess.username, pid)
 
 			if sess.origin {
 				msg, err := json.Marshal(map[string]interface{}{
@@ -336,6 +339,7 @@ func (sess *session) OnIceReady(role int, sid, ssid, pid string) {
 					LabelRoomId:    sess.parent.roomid,
 					LabelSessID:    sid,
 					LabelPeerID:    pid,
+					LabelUserName:  sess.username,
 				})
 				if err != nil {
 					fmt.Println("generate json error:", err)

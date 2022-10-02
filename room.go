@@ -1,3 +1,4 @@
+//go:build !js
 // +build !js
 
 package main
@@ -46,13 +47,14 @@ func (r *room) HandleMessage(j jsonparser) {
 	userID := GetValue(j, LabelSessID)
 
 	if command == CmdLogin {
+		userName := GetValue(j, LabelUserName)
 		if _, ok := r.sessions[userID]; ok {
 			r.sessionsLock.Lock()
 			r.sessions[userID].DoLeave()
 			delete(r.sessions, userID)
 			r.sessionsLock.Unlock()
 		}
-		sess := CreateSession(r, userID, r.conf, r.onSendMessageHandler)
+		sess := CreateSession(r, userID, userName, r.conf, r.onSendMessageHandler)
 		r.sessionsLock.Lock()
 		r.sessions[userID] = sess
 		r.sessionsLock.Unlock()
@@ -70,10 +72,11 @@ func (r *room) HandleMessage(j jsonparser) {
 		for _, value := range r.sessions {
 			if ret, sid, pid := value.hasPublisher(); ret {
 				msg, err := json.Marshal(map[string]interface{}{
-					LabelCmd:    CmdPub,
-					LabelRoomId: r.roomid,
-					LabelSessID: sid,
-					LabelPeerID: pid,
+					LabelCmd:      CmdPub,
+					LabelRoomId:   r.roomid,
+					LabelSessID:   sid,
+					LabelUserName: value.username,
+					LabelPeerID:   pid,
 				})
 				if err != nil {
 					fmt.Println("generate json error:", err)
@@ -133,6 +136,7 @@ func (r *room) HandleMessage(j jsonparser) {
 	} else if command == CmdFakePublish {
 		clusterid := GetValue(j, LabelClusterId)
 		podid := GetValue(j, LabelPodId)
+		userName := GetValue(j, LabelUserName)
 		if _, ok := r.sessions[userID]; ok {
 			r.sessionsLock.Lock()
 			r.sessions[userID].DoLeave()
@@ -146,7 +150,7 @@ func (r *room) HandleMessage(j jsonparser) {
 			return
 		}
 
-		sess := CreateSession(r, userID, r.conf, r.onSendMessageHandler)
+		sess := CreateSession(r, userID, userName, r.conf, r.onSendMessageHandler)
 		sess.SetFakeSession(clusterid, podid)
 		r.sessionsLock.Lock()
 		r.sessions[userID] = sess
@@ -189,16 +193,17 @@ func (r *room) HandleMessage(j jsonparser) {
 	}
 }
 
-func (r *room) OnPublisherReady(sid, pid string) {
+func (r *room) OnPublisherReady(sid, name, pid string) {
 	for _, value := range r.sessions {
 		if !value.origin {
 			continue
 		}
 		msg, err := json.Marshal(map[string]interface{}{
-			LabelCmd:    CmdPub,
-			LabelRoomId: r.roomid,
-			LabelSessID: sid,
-			LabelPeerID: pid,
+			LabelCmd:      CmdPub,
+			LabelRoomId:   r.roomid,
+			LabelSessID:   sid,
+			LabelUserName: name,
+			LabelPeerID:   pid,
 		})
 		if err != nil {
 			fmt.Println("generate json error:", err)
