@@ -1,3 +1,4 @@
+//go:build !js
 // +build !js
 
 package main
@@ -59,7 +60,7 @@ func (rm *roommgr) SetSendMessageHandler(f func(topic, msg string)) {
 		}
 	}()
 
-	if len(rm.conf.Mqtt_topic) == 36 {
+	if len(rm.conf.MqttTopic) == 36 {
 		go rm.StartRegistToLB()
 	} else {
 		rm.regist = true

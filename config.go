@@ -26,11 +26,11 @@ type Config struct {
 	Mqttport     uint32 `ini:"mqtt_port"`
 	Mqttuser     string `ini:"mqtt_username"`
 	Mqttpwd      string `ini:"mqtt_password"`
+	MqttTopic    string `ini:"mqtt_topic"`
 	Rmqurl       string `ini:"rabbitmq_url"`
 	CenterRmqurl string `ini:"center_rabbitmq_url"`
 	Maxpull      uint32 `ini:"max_count_pull_stream"`
 	Clusterid    string
-	Mqtt_topic   string // for test cross-cluster
 	Uuid         string
 	ContainerID  string
 	sn           uint64
@@ -75,17 +75,16 @@ func initConfig() *Config {
 }
 
 func (c *Config) initFromEnv() {
-	proxy_ip := os.Getenv("SLB_IP")
-	test_clusterid := os.Getenv("TEST_CLUSTER_ID")
-	mqtt_topic := os.Getenv("MQTT_TOPIC")
-	if len(mqtt_topic) == 0 {
-		mqtt_topic = c.Uuid
+	c.Proxyaddr = os.Getenv("SLB_IP")
+	c.Clusterid = os.Getenv("TEST_CLUSTER_ID")
+
+	if len(c.MqttTopic) == 0 {
+		c.MqttTopic = os.Getenv("MQTT_TOPIC")
 		fmt.Printf("test mqtt topic: %s\n", c.Uuid)
 	}
-
-	c.Proxyaddr = proxy_ip
-	c.Clusterid = test_clusterid
-	c.Mqtt_topic = mqtt_topic
+	if len(c.MqttTopic) == 0 {
+		panic("mqtt topic illige")
+	}
 }
 
 func (c *Config) GetSn() uint64 {

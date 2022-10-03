@@ -1,3 +1,4 @@
+//go:build !js
 // +build !js
 
 package main
@@ -24,17 +25,17 @@ var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 	if err != nil {
 		return
 	}
-	if token := client.Subscribe(conf.Mqtt_topic, 2, nil); token.Wait() && token.Error() != nil {
+	if token := client.Subscribe(conf.MqttTopic, 2, nil); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
-	fmt.Printf("mqtt subscribe %s\n", conf.Mqtt_topic)
+	fmt.Printf("mqtt subscribe %s\n", conf.MqttTopic)
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
 	fmt.Println("mqtt connection lost: ", err)
 }
 
-//CreateMqtt is
+// CreateMqtt is
 func CreateMqtt() *mqttonnection {
 	return &mqttonnection{}
 }
