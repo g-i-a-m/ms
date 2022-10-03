@@ -1,3 +1,4 @@
+//go:build !js
 // +build !js
 
 package main
@@ -137,9 +138,10 @@ func CreatePublishPeer(s *session, sid, pid, podid string, c *Config, isFake boo
 		return nil, err
 	}
 
-	if err = m.RegisterDefaultHeaderExtension(); err != nil {
-		return nil, err
-	}
+	// add rtpheader Extension by custom interface
+	// if err = m.RegisterDefaultHeaderExtension(); err != nil {
+	// 	return nil, err
+	// }
 
 	i := &interceptor.Registry{}
 	if err = webrtc.RegisterDefaultInterceptors(m, i); err != nil {
@@ -171,7 +173,7 @@ func CreatePublishPeer(s *session, sid, pid, podid string, c *Config, isFake boo
 						return
 					}
 
-					p.parent.OnReceivedAudioData(rtpBuf, i)
+					p.parent.OnReceivedAudioData(rtpBuf, i, p.peerid)
 				}
 			}()
 			return
@@ -192,7 +194,7 @@ func CreatePublishPeer(s *session, sid, pid, podid string, c *Config, isFake boo
 					if readErr != nil && readErr == io.EOF {
 						return
 					}
-					p.parent.OnReceivedVideoData(rtpBuf, i)
+					p.parent.OnReceivedVideoData(rtpBuf, i, p.peerid)
 				}
 			}()
 			return
@@ -342,9 +344,10 @@ func CreateSubscribePeer(s *session, sid, ssid, pid, podid string, c *Config, pu
 	m := &webrtc.MediaEngine{}
 	initMediaCodec(m)
 
-	if err = m.RegisterDefaultHeaderExtension(); err != nil {
-		return nil, err
-	}
+	// add rtpheader Extension by custom interface
+	// if err = m.RegisterDefaultHeaderExtension(); err != nil {
+	// 	return nil, err
+	// }
 
 	i := &interceptor.Registry{}
 	if err = webrtc.RegisterDefaultInterceptors(m, i); err != nil {

@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -594,19 +595,23 @@ func (sess *session) UpdateVideoCodec(codec webrtc.RTPCodecParameters) {
 	sess.subsmux.RUnlock()
 }
 
-func (sess *session) OnReceivedAudioData(buff []byte, len int) {
+func (sess *session) OnReceivedAudioData(buff []byte, len int, peerid string) {
 	sess.subsmux.RLock()
 	defer sess.subsmux.RUnlock()
-	for _, value := range sess.subscribers {
-		value.deliverAudioData(buff, len)
+	for key, value := range sess.subscribers {
+		if strings.Contains(key, peerid) {
+			value.deliverAudioData(buff, len)
+		}
 	}
 }
 
-func (sess *session) OnReceivedVideoData(buff []byte, len int) {
+func (sess *session) OnReceivedVideoData(buff []byte, len int, peerid string) {
 	sess.subsmux.RLock()
 	defer sess.subsmux.RUnlock()
-	for _, value := range sess.subscribers {
-		value.deliverVideoData(buff, len)
+	for key, value := range sess.subscribers {
+		if strings.Contains(key, peerid) {
+			value.deliverVideoData(buff, len)
+		}
 	}
 }
 
